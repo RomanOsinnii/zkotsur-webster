@@ -1,0 +1,93 @@
+:root {
+  color: #f4efe6;
+  background:
+    radial-gradient(circle at top, rgba(236, 166, 76, 0.22), transparent 30%),
+    linear-gradient(135deg, #15120f 0%, #21150f 45%, #0e1418 100%);
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.app-shell {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.panel {
+  width: min(720px, 100%);
+  padding: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 24px;
+  background: rgba(12, 12, 12, 0.5);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  color: #f3b66d;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.75rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2.5rem, 6vw, 4.5rem);
+  line-height: 0.95;
+}
+
+.lead {
+  max-width: 56ch;
+  margin: 20px 0 0;
+  color: rgba(244, 239, 230, 0.82);
+}
+
+.status-card {
+  margin-top: 32px;
+  padding: 20px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.label {
+  display: block;
+  margin-bottom: 8px;
+  color: rgba(244, 239, 230, 0.68);
+  font-size: 0.9rem;
+}
+
+.success {
+  color: #98f0b2;
+}
+
+.muted {
+  color: rgba(244, 239, 230, 0.72);
+}
+
+.error {
+  margin: 10px 0 0;
+  color: #ff8c7a;
+}
+
+@media (max-width: 640px) {
+  .panel {
+    padding: 28px;
+  }
+}
