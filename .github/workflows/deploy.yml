@@ -38,6 +38,14 @@ jobs:
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GITHUB_ACTOR_NAME: ${{ github.actor }}
+      GITHUB_SHA_FULL: ${{ github.sha }}
+      GITHUB_REF_NAME_VALUE: ${{ github.ref_name }}
+      GITHUB_REPOSITORY_NAME: ${{ github.repository }}
+      GITHUB_SERVER_URL_VALUE: ${{ github.server_url }}
+      GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
+      GITHUB_RUN_NUMBER_VALUE: ${{ github.run_number }}
+      GITHUB_COMMIT_MESSAGE: ${{ github.event.head_commit.message || 'Manual workflow dispatch' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
