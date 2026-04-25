@@ -7,11 +7,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  test-client:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        app: [client, server]
+    outputs:
+      status: ${{ steps.test-status.outputs.status }}
+      passed: ${{ steps.parse-report.outputs.passed }}
+      failed: ${{ steps.parse-report.outputs.failed }}
+      failed_tests: ${{ steps.parse-report.outputs.failed_tests }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -21,20 +23,183 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+          cache-dependency-path: client/package-lock.json
 
       - name: Install dependencies
-        working-directory: ${{ matrix.app }}
+        working-directory: client
         run: npm ci
 
-      - name: Run tests
-        working-directory: ${{ matrix.app }}
-        run: npm test
+      - name: Run client tests
+        id: run-tests
+        working-directory: client
+        continue-on-error: true
+        run: npx vitest run --reporter=json --outputFile=vitest-report.json
+
+      - name: Parse client report
+        id: parse-report
+        if: always()
+        working-directory: client
+        shell: bash
+        run: |
+          node -e "
+          const fs = require('fs');
+          const report = JSON.parse(fs.readFileSync('vitest-report.json', 'utf8'));
+          const passed = report.numPassedTests ?? 0;
+          const failed = report.numFailedTests ?? 0;
+          const failedTests = [];
+          for (const suite of report.testResults ?? []) {
+            for (const test of suite.assertionResults ?? []) {
+              if (test.status === 'failed') {
+                const titles = [...(test.ancestorTitles ?? []), test.title].filter(Boolean);
+                failedTests.push(titles.join(' > '));
+              }
+            }
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'passed=' + passed + '\n');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'failed=' + failed + '\n');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'failed_tests<<EOF\n' + (failedTests.join('\n') || 'None') + '\nEOF\n');
+          "
+
+      - name: Set client test status
+        id: test-status
+        if: always()
+        shell: bash
+        run: |
+          if [[ "${{ steps.run-tests.outcome }}" == "success" ]]; then
+            echo "status=passed" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=failed" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fail job if client tests failed
+        if: steps.run-tests.outcome != 'success'
+        run: exit 1
+
+  test-server:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ steps.test-status.outputs.status }}
+      passed: ${{ steps.parse-report.outputs.passed }}
+      failed: ${{ steps.parse-report.outputs.failed }}
+      failed_tests: ${{ steps.parse-report.outputs.failed_tests }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install dependencies
+        working-directory: server
+        run: npm ci
+
+      - name: Run server tests
+        id: run-tests
+        working-directory: server
+        continue-on-error: true
+        run: npx jest --runInBand --json --outputFile=jest-report.json
+
+      - name: Parse server report
+        id: parse-report
+        if: always()
+        working-directory: server
+        shell: bash
+        run: |
+          node -e "
+          const fs = require('fs');
+          const report = JSON.parse(fs.readFileSync('jest-report.json', 'utf8'));
+          const passed = report.numPassedTests ?? 0;
+          const failed = report.numFailedTests ?? 0;
+          const failedTests = [];
+          for (const suite of report.testResults ?? []) {
+            for (const test of suite.assertionResults ?? []) {
+              if (test.status === 'failed') {
+                const titles = [...(test.ancestorTitles ?? []), test.title].filter(Boolean);
+                failedTests.push(titles.join(' > '));
+              }
+            }
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'passed=' + passed + '\n');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'failed=' + failed + '\n');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'failed_tests<<EOF\n' + (failedTests.join('\n') || 'None') + '\nEOF\n');
+          "
+
+      - name: Set server test status
+        id: test-status
+        if: always()
+        shell: bash
+        run: |
+          if [[ "${{ steps.run-tests.outcome }}" == "success" ]]; then
+            echo "status=passed" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=failed" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fail job if server tests failed
+        if: steps.run-tests.outcome != 'success'
+        run: exit 1
+
+  notify-tests:
+    runs-on: ubuntu-latest
+    needs: [test-client, test-server]
+    if: always()
+    environment: MAIN_ENV
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GITHUB_ACTOR_NAME: ${{ github.actor }}
+      GITHUB_SHA_FULL: ${{ github.sha }}
+      GITHUB_REF_NAME_VALUE: ${{ github.ref_name }}
+      GITHUB_REPOSITORY_NAME: ${{ github.repository }}
+      GITHUB_SERVER_URL_VALUE: ${{ github.server_url }}
+      GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
+      GITHUB_RUN_NUMBER_VALUE: ${{ github.run_number }}
+    steps:
+      - name: Send test summary to Telegram
+        shell: bash
+        run: |
+          if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
+            exit 0
+          fi
+
+          SHORT_SHA="${GITHUB_SHA_FULL:0:7}"
+          RUN_URL="${GITHUB_SERVER_URL_VALUE}/${GITHUB_REPOSITORY_NAME}/actions/runs/${GITHUB_RUN_ID_VALUE}"
+
+          MESSAGE="Webster test summary
+
+Repository: ${GITHUB_REPOSITORY_NAME}
+Branch: ${GITHUB_REF_NAME_VALUE}
+Commit: ${SHORT_SHA}
+Triggered by: ${GITHUB_ACTOR_NAME}
+Run: #${GITHUB_RUN_NUMBER_VALUE}
+
+Client: ${{ needs.test-client.outputs.status }}
+Passed: ${{ needs.test-client.outputs.passed }}
+Failed: ${{ needs.test-client.outputs.failed }}
+Failed tests:
+${{ needs.test-client.outputs.failed_tests }}
+
+Server: ${{ needs.test-server.outputs.status }}
+Passed: ${{ needs.test-server.outputs.passed }}
+Failed: ${{ needs.test-server.outputs.failed }}
+Failed tests:
+${{ needs.test-server.outputs.failed_tests }}
+
+${RUN_URL}"
+
+          curl -fsSL -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${MESSAGE}" \
+            --data-urlencode "disable_web_page_preview=true"
 
   deploy:
     runs-on: [self-hosted, webster-prod]
-    needs: test
-    if: github.ref == 'refs/heads/main'
+    needs: [test-client, test-server, notify-tests]
+    if: github.ref == 'refs/heads/main' && needs.test-client.result == 'success' && needs.test-server.result == 'success'
     environment: MAIN_ENV
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
