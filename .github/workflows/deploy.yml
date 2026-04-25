@@ -161,6 +161,15 @@ jobs:
     steps:
       - name: Send test summary to Telegram
         shell: bash
+        env:
+          CLIENT_STATUS: ${{ needs.test-client.outputs.status }}
+          CLIENT_PASSED: ${{ needs.test-client.outputs.passed }}
+          CLIENT_FAILED: ${{ needs.test-client.outputs.failed }}
+          CLIENT_FAILED_TESTS: ${{ needs.test-client.outputs.failed_tests }}
+          SERVER_STATUS: ${{ needs.test-server.outputs.status }}
+          SERVER_PASSED: ${{ needs.test-server.outputs.passed }}
+          SERVER_FAILED: ${{ needs.test-server.outputs.failed }}
+          SERVER_FAILED_TESTS: ${{ needs.test-server.outputs.failed_tests }}
         run: |
           if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
             exit 0
@@ -169,27 +178,30 @@ jobs:
           SHORT_SHA="${GITHUB_SHA_FULL:0:7}"
           RUN_URL="${GITHUB_SERVER_URL_VALUE}/${GITHUB_REPOSITORY_NAME}/actions/runs/${GITHUB_RUN_ID_VALUE}"
 
-          MESSAGE="Webster test summary
+          MESSAGE=$(cat <<EOF
+          Webster test summary
 
-Repository: ${GITHUB_REPOSITORY_NAME}
-Branch: ${GITHUB_REF_NAME_VALUE}
-Commit: ${SHORT_SHA}
-Triggered by: ${GITHUB_ACTOR_NAME}
-Run: #${GITHUB_RUN_NUMBER_VALUE}
+          Repository: ${GITHUB_REPOSITORY_NAME}
+          Branch: ${GITHUB_REF_NAME_VALUE}
+          Commit: ${SHORT_SHA}
+          Triggered by: ${GITHUB_ACTOR_NAME}
+          Run: #${GITHUB_RUN_NUMBER_VALUE}
 
-Client: ${{ needs.test-client.outputs.status }}
-Passed: ${{ needs.test-client.outputs.passed }}
-Failed: ${{ needs.test-client.outputs.failed }}
-Failed tests:
-${{ needs.test-client.outputs.failed_tests }}
+          Client: ${CLIENT_STATUS}
+          Passed: ${CLIENT_PASSED}
+          Failed: ${CLIENT_FAILED}
+          Failed tests:
+          ${CLIENT_FAILED_TESTS}
 
-Server: ${{ needs.test-server.outputs.status }}
-Passed: ${{ needs.test-server.outputs.passed }}
-Failed: ${{ needs.test-server.outputs.failed }}
-Failed tests:
-${{ needs.test-server.outputs.failed_tests }}
+          Server: ${SERVER_STATUS}
+          Passed: ${SERVER_PASSED}
+          Failed: ${SERVER_FAILED}
+          Failed tests:
+          ${SERVER_FAILED_TESTS}
 
-${RUN_URL}"
+          ${RUN_URL}
+          EOF
+          )
 
           curl -fsSL -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
