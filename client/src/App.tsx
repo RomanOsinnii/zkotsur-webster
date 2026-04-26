@@ -128,6 +128,9 @@ export default function App() {
   const clipboardObjectRef = useRef<WebsterObject | null>(null);
   const activeToolRef = useRef<ToolMode>('select');
   const spacePressedRef = useRef(false);
+  const gridCursorTargetRef = useRef({ x: 0, y: 0 });
+  const gridCursorCurrentRef = useRef({ x: 0, y: 0 });
+  const gridCursorAnimationRef = useRef<number | null>(null);
   const styleSettingsRef = useRef({
     cornerRadii: {
       topLeft: 14,
@@ -198,6 +201,14 @@ export default function App() {
   useEffect(() => {
     spacePressedRef.current = spacePressed;
   }, [spacePressed]);
+
+  useEffect(() => {
+    return () => {
+      if (gridCursorAnimationRef.current !== null) {
+        window.cancelAnimationFrame(gridCursorAnimationRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     styleSettingsRef.current = {
@@ -516,6 +527,65 @@ export default function App() {
     event.stopPropagation();
     const multiplier = event.deltaY > 0 ? 0.9 : 1.1;
     setZoom(workspaceZoom * multiplier, { x: event.clientX, y: event.clientY });
+  };
+
+  const updateGridCursorTarget = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const stage = canvasStageRef.current;
+    if (!stage) return;
+    const rect = stage.getBoundingClientRect();
+    const x = Math.min(rect.width, Math.max(0, event.clientX - rect.left));
+    const y = Math.min(rect.height, Math.max(0, event.clientY - rect.top));
+    gridCursorTargetRef.current = { x, y };
+  };
+
+  const animateGridCursor = () => {
+    const stage = canvasStageRef.current;
+    if (!stage) {
+      gridCursorAnimationRef.current = null;
+      return;
+    }
+    const target = gridCursorTargetRef.current;
+    const current = gridCursorCurrentRef.current;
+    const nextX = current.x + (target.x - current.x) * 0.24;
+    const nextY = current.y + (target.y - current.y) * 0.24;
+    gridCursorCurrentRef.current = { x: nextX, y: nextY };
+    stage.style.setProperty('--grid-cursor-x', `${nextX.toFixed(1)}px`);
+    stage.style.setProperty('--grid-cursor-y', `${nextY.toFixed(1)}px`);
+
+    const dx = Math.abs(target.x - nextX);
+    const dy = Math.abs(target.y - nextY);
+    if (dx < 0.25 && dy < 0.25) {
+      gridCursorAnimationRef.current = null;
+      return;
+    }
+    gridCursorAnimationRef.current = window.requestAnimationFrame(animateGridCursor);
+  };
+
+  const startGridCursorAnimation = () => {
+    if (gridCursorAnimationRef.current !== null) return;
+    gridCursorAnimationRef.current = window.requestAnimationFrame(animateGridCursor);
+  };
+
+  const handleStagePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    updateGridCursorTarget(event);
+    startGridCursorAnimation();
+  };
+
+  const handleStagePointerEnter = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const stage = canvasStageRef.current;
+    if (!stage) return;
+    updateGridCursorTarget(event);
+    const { x, y } = gridCursorTargetRef.current;
+    gridCursorCurrentRef.current = { x, y };
+    stage.style.setProperty('--grid-cursor-x', `${x.toFixed(1)}px`);
+    stage.style.setProperty('--grid-cursor-y', `${y.toFixed(1)}px`);
+    stage.style.setProperty('--grid-focus-opacity', '0.78');
+  };
+
+  const handleStagePointerLeave = () => {
+    const stage = canvasStageRef.current;
+    if (!stage) return;
+    stage.style.setProperty('--grid-focus-opacity', '0');
   };
 
   const startWorkspacePan = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1258,7 +1328,23 @@ export default function App() {
             <button className="primary-button" onClick={exportFrame} title="Export current frame as PNG" type="button"><Download size={18} /> Export PNG</button>
           </div>
         </header>
-        <div className={`${showGrid ? 'canvas-stage grid-visible' : 'canvas-stage'} ${spacePressed ? 'pan-mode' : ''}`} onPointerDown={startWorkspacePan} onWheel={handleWorkspaceWheel} ref={canvasStageRef}>
+        <div
+          className={`${showGrid ? 'canvas-stage grid-visible' : 'canvas-stage'} ${spacePressed ? 'pan-mode' : ''}`}
+          onPointerDown={startWorkspacePan}
+          onPointerEnter={handleStagePointerEnter}
+          onPointerLeave={handleStagePointerLeave}
+          onPointerMove={handleStagePointerMove}
+          onWheel={handleWorkspaceWheel}
+          ref={canvasStageRef}
+        >
+          {showGrid ? (
+            <>
+              <div aria-hidden className="dot-grid dot-grid-base" />
+              <div aria-hidden className="dot-grid dot-grid-focus dot-grid-focus-lg" />
+              <div aria-hidden className="dot-grid dot-grid-focus dot-grid-focus-md" />
+              <div aria-hidden className="dot-grid dot-grid-focus dot-grid-focus-sm" />
+            </>
+          ) : null}
           <div className="active-canvas-frame" ref={activeFrameRef} style={{ transform: `translate(${workspacePan.x}px, ${workspacePan.y}px) scale(${workspaceZoom})` }}>
             <canvas ref={canvasElementRef} />
             {snapLines.map((line, index) => (
