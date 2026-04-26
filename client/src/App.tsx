@@ -1,4 +1,4 @@
-import { ChangeEvent, PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent, useEffect, useRef, useState } from 'react';
+﻿import { ChangeEvent, PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent, useEffect, useRef, useState } from 'react';
 import { Canvas, Circle, FabricImage, FabricObject, Path, Pattern, Point, Rect, Textbox, Triangle } from 'fabric';
 import { Download, Grid3X3, ImagePlus, MousePointer2, Plus, Square, Trash2, Type, Upload } from 'lucide-react';
 import JSZip from 'jszip';
@@ -101,9 +101,32 @@ const cornerFields: { key: keyof CornerRadii; label: string }[] = [
   { key: 'bottomLeft', label: 'Bottom left' }
 ];
 
+function createId() {
+  const randomUuid = globalThis.crypto?.randomUUID;
+  if (typeof randomUuid === 'function') {
+    return randomUuid.call(globalThis.crypto);
+  }
+
+  const bytes = new Uint8Array(16);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+
+  // RFC 4122 variant 4
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 const initialFrames: DesignFrame[] = presets.map((preset, index) => ({
   ...preset,
-  id: crypto.randomUUID(),
+  id: createId(),
   name: index === 0 ? 'Instagram' : preset.name,
   backgroundColor: '#ffffff',
   backgroundOpacity: 1,
@@ -162,8 +185,8 @@ export default function App() {
     bottomLeft: 14
   });
   const [gradientStops, setGradientStops] = useState<GradientStopItem[]>([
-    { id: crypto.randomUUID(), offset: 0, color: '#111827', opacity: 1 },
-    { id: crypto.randomUUID(), offset: 1, color: '#ffffff', opacity: 1 }
+    { id: createId(), offset: 0, color: '#111827', opacity: 1 },
+    { id: createId(), offset: 1, color: '#ffffff', opacity: 1 }
   ]);
   const [fillLayers, setFillLayers] = useState<FillLayer[]>([
     createFillLayer('solid', '#1f2937', 1)
@@ -623,7 +646,7 @@ export default function App() {
     saveCurrentFrame();
     const nextFrame: DesignFrame = {
       ...preset,
-      id: crypto.randomUUID(),
+      id: createId(),
       name: `${preset.name} ${framesRef.current.length + 1}`,
       backgroundColor: '#ffffff',
       backgroundOpacity: 1,
@@ -681,7 +704,7 @@ export default function App() {
         fill: colorWithOpacity(settings.fillColor, settings.fillOpacity)
       }) as WebsterObject;
       setCornerRadiiMetadata(rect, settings.cornerRadii);
-      rect.objectId = crypto.randomUUID();
+      rect.objectId = createId();
       rect.objectName = 'Rectangle';
       rect.fillLayers = [createFillLayer('solid', settings.fillColor, settings.fillOpacity)];
       applyFillLayersToObject(rect);
@@ -689,7 +712,7 @@ export default function App() {
     }
     if (tool === 'circle') {
       const circle = new Circle({ left, top, originX: 'left', originY: 'top', radius: 1, fill: colorWithOpacity(settings.fillColor, settings.fillOpacity) }) as WebsterObject;
-      circle.objectId = crypto.randomUUID();
+      circle.objectId = createId();
       circle.objectName = 'Circle';
       circle.fillLayers = [createFillLayer('solid', settings.fillColor, settings.fillOpacity)];
       applyFillLayersToObject(circle);
@@ -697,7 +720,7 @@ export default function App() {
     }
     if (tool === 'shape') {
       const triangle = new Triangle({ left, top, originX: 'left', originY: 'top', width: 1, height: 1, fill: colorWithOpacity(settings.fillColor, settings.fillOpacity) }) as WebsterObject;
-      triangle.objectId = crypto.randomUUID();
+      triangle.objectId = createId();
       triangle.objectName = 'Triangle';
       triangle.fillLayers = [createFillLayer('solid', settings.fillColor, settings.fillOpacity)];
       applyFillLayersToObject(triangle);
@@ -795,7 +818,7 @@ export default function App() {
   };
 
   const addFrameGradientStop = () => {
-    const nextStops = [...getFrameStops(activeFrame), { id: crypto.randomUUID(), offset: 0.5, color: '#737373', opacity: 1 }]
+    const nextStops = [...getFrameStops(activeFrame), { id: createId(), offset: 0.5, color: '#737373', opacity: 1 }]
       .sort((a, b) => a.offset - b.offset);
     updateActiveFrame({ backgroundStops: nextStops });
     const canvas = fabricCanvasRef.current;
@@ -832,7 +855,7 @@ export default function App() {
   const addObject = (object: WebsterObject, name: string) => {
     const canvas = fabricCanvasRef.current;
     if (!canvas) return;
-    object.objectId = crypto.randomUUID();
+    object.objectId = createId();
     object.objectName = name;
     object.fillLayers = [createFillLayer('solid', fillColor, fillOpacity)];
     applyFillLayersToObject(object);
@@ -1116,7 +1139,7 @@ export default function App() {
   };
 
   const addGradientStop = () => {
-    setGradientStops((current) => [...current, { id: crypto.randomUUID(), offset: 0.5, color: '#2563eb', opacity: 1 }].sort((a, b) => a.offset - b.offset));
+    setGradientStops((current) => [...current, { id: createId(), offset: 0.5, color: '#2563eb', opacity: 1 }].sort((a, b) => a.offset - b.offset));
   };
 
   const updateGradientStop = (id: string, patch: Partial<Pick<GradientStopItem, 'offset' | 'color' | 'opacity'>>) => {
@@ -1159,7 +1182,7 @@ export default function App() {
       left: (clone.left ?? 0) + 24,
       top: (clone.top ?? 0) + 24
     });
-    clone.objectId = crypto.randomUUID();
+    clone.objectId = createId();
     clone.objectName = `${getObjectName(clone)} copy`;
     if (clone.fillLayers?.length) applyFillLayersToObject(clone);
     canvas.add(clone);
@@ -1221,7 +1244,7 @@ export default function App() {
       }));
       framesRef.current = nextFrames;
       setFrames(nextFrames);
-      setActiveFrameId(nextFrames[0]?.id ?? crypto.randomUUID());
+      setActiveFrameId(nextFrames[0]?.id ?? createId());
     };
     reader.readAsArrayBuffer(file);
     event.target.value = '';
@@ -1277,8 +1300,8 @@ export default function App() {
           <div className="icon-grid">
             <button onClick={addText} type="button"><Type size={20} /><span>Text</span></button>
             <button onClick={addRect} type="button"><Square size={20} /><span>Box</span></button>
-            <button onClick={addCircle} type="button"><span>○</span><span>Circle</span></button>
-            <button onClick={addTriangle} type="button"><span>△</span><span>Shape</span></button>
+            <button onClick={addCircle} type="button"><span>в—‹</span><span>Circle</span></button>
+            <button onClick={addTriangle} type="button"><span>в–і</span><span>Shape</span></button>
           </div>
           <button className="wide-action" onClick={() => fileInputRef.current?.click()} title="Upload an image into the current frame" type="button">
             <ImagePlus size={18} /> Add image
@@ -1383,8 +1406,8 @@ export default function App() {
             <button className={activeTool === 'select' ? 'active' : ''} onClick={() => setActiveTool('select')} title="Select (V)" type="button"><MousePointer2 size={20} /><span>V</span></button>
             <button className={activeTool === 'text' ? 'active' : ''} onClick={() => setActiveTool('text')} title="Text (T)" type="button"><Type size={22} /><span>T</span></button>
             <button className={activeTool === 'box' ? 'active' : ''} onClick={() => setActiveTool('box')} title="Box (B)" type="button"><Square size={20} /><span>B</span></button>
-            <button className={activeTool === 'circle' ? 'active' : ''} onClick={() => setActiveTool('circle')} title="Circle (C)" type="button"><span className="tool-glyph">○</span><span>C</span></button>
-            <button className={activeTool === 'shape' ? 'active' : ''} onClick={() => setActiveTool('shape')} title="Shape (P)" type="button"><span className="tool-glyph">△</span><span>P</span></button>
+            <button className={activeTool === 'circle' ? 'active' : ''} onClick={() => setActiveTool('circle')} title="Circle (C)" type="button"><span className="tool-glyph">в—‹</span><span>C</span></button>
+            <button className={activeTool === 'shape' ? 'active' : ''} onClick={() => setActiveTool('shape')} title="Shape (P)" type="button"><span className="tool-glyph">в–і</span><span>P</span></button>
             <button onClick={() => fileInputRef.current?.click()} title="Image (I)" type="button"><ImagePlus size={20} /><span>I</span></button>
             <div className="toolbar-help">
               <button aria-label="Show shortcuts" title="Shortcuts" type="button">?</button>
@@ -1620,7 +1643,7 @@ function addStarterObjects(canvas: Canvas, frame: DesignFrame) {
     fill: '#111827'
   }) as WebsterObject;
   [heading, accent, circle, caption, triangle].forEach((object, index) => {
-    object.objectId = crypto.randomUUID();
+    object.objectId = createId();
     object.objectName = ['Headline', 'Accent bar', 'Blue circle', 'Caption', 'Triangle'][index];
     ensureFillLayerMetadata(object);
     refreshObjectFillOnResize(object);
@@ -1631,7 +1654,7 @@ function addStarterObjects(canvas: Canvas, frame: DesignFrame) {
 function getLayers(canvas: Canvas, active: WebsterObject | null): LayerItem[] {
   return canvas.getObjects().map((object, index) => {
     const item = object as WebsterObject;
-    item.objectId ??= crypto.randomUUID();
+    item.objectId ??= createId();
     item.objectName ??= item.type ?? 'Object';
     return {
       index,
@@ -1645,7 +1668,7 @@ function getLayers(canvas: Canvas, active: WebsterObject | null): LayerItem[] {
 
 function ensureObjectIds(canvas: Canvas) {
   (canvas.getObjects() as WebsterObject[]).forEach((object) => {
-    object.objectId ??= crypto.randomUUID();
+    object.objectId ??= createId();
     object.objectName ??= object.type ?? 'Object';
     configureSelectionOutline(object);
     ensureFillLayerMetadata(object);
@@ -1755,20 +1778,20 @@ function getFrameStops(frame: DesignFrame) {
 
 function createDefaultGradientStops(from: string, to: string) {
   return [
-    { id: crypto.randomUUID(), offset: 0, color: from, opacity: 1 },
-    { id: crypto.randomUUID(), offset: 1, color: to, opacity: 1 }
+    { id: createId(), offset: 0, color: from, opacity: 1 },
+    { id: createId(), offset: 1, color: to, opacity: 1 }
   ];
 }
 
 function createFillLayer(mode: FillMode, color: string, opacity: number): FillLayer {
   return {
-    id: crypto.randomUUID(),
+    id: createId(),
     mode,
     color,
     opacity,
     stops: [
-      { id: crypto.randomUUID(), offset: 0, color, opacity },
-      { id: crypto.randomUUID(), offset: 1, color: '#ffffff', opacity: mode === 'gradient' ? 1 : opacity }
+      { id: createId(), offset: 0, color, opacity },
+      { id: createId(), offset: 1, color: '#ffffff', opacity: mode === 'gradient' ? 1 : opacity }
     ]
   };
 }
@@ -2161,3 +2184,4 @@ function parseColor(color: string) {
 function rgbToHex(r: number, g: number, b: number) {
   return `#${[r, g, b].map((value) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, '0')).join('')}`;
 }
+
