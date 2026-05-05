@@ -15,6 +15,8 @@ type GalleryTemplate = {
   id: string;
   title: string;
   subtitle: string;
+  width: number;
+  height: number;
   size: string;
   toneClass: string;
   illustrationClass: string;
@@ -95,14 +97,14 @@ const presets: FramePreset[] = [
   { name: 'Poster', description: 'Print-friendly layout', width: 900, height: 1200 }
 ];
 const galleryTemplates: GalleryTemplate[] = [
-  { id: 'instagram-post', title: 'Instagram Post', subtitle: 'Social network post', size: '1080 x 1080', toneClass: 'gallery-tone-1', illustrationClass: 'ill-instagram' },
-  { id: 'instagram-story', title: 'Instagram Story', subtitle: 'Story mockup', size: '1080 x 1920', toneClass: 'gallery-tone-2', illustrationClass: 'ill-phone' },
-  { id: 'facebook-cover', title: 'Facebook Cover', subtitle: 'Page cover banner', size: '820 x 312', toneClass: 'gallery-tone-3', illustrationClass: 'ill-cover' },
-  { id: 'youtube-thumb', title: 'YouTube Thumbnail', subtitle: 'Video preview', size: '1280 x 720', toneClass: 'gallery-tone-4', illustrationClass: 'ill-youtube' },
-  { id: 'collage', title: 'Photo Collages', subtitle: 'Grid photo collage', size: '1080 x 1080', toneClass: 'gallery-tone-5', illustrationClass: 'ill-collage' },
-  { id: 'greeting', title: 'Greeting Card', subtitle: 'Invite and congratulate', size: '1200 x 800', toneClass: 'gallery-tone-6', illustrationClass: 'ill-greeting' },
-  { id: 'invitation', title: 'Invitation', subtitle: 'Event invitation', size: '1080 x 1350', toneClass: 'gallery-tone-7', illustrationClass: 'ill-invitation' },
-  { id: 'postcard', title: 'Postcard', subtitle: 'Ready postcard design', size: '1480 x 1050', toneClass: 'gallery-tone-8', illustrationClass: 'ill-postcard' }
+  { id: 'instagram-post', title: 'Instagram Post', subtitle: 'Social network post', width: 1080, height: 1080, size: '1080 x 1080', toneClass: 'gallery-tone-1', illustrationClass: 'ill-instagram' },
+  { id: 'instagram-story', title: 'Instagram Story', subtitle: 'Story mockup', width: 1080, height: 1920, size: '1080 x 1920', toneClass: 'gallery-tone-2', illustrationClass: 'ill-phone' },
+  { id: 'facebook-cover', title: 'Facebook Cover', subtitle: 'Page cover banner', width: 820, height: 312, size: '820 x 312', toneClass: 'gallery-tone-3', illustrationClass: 'ill-cover' },
+  { id: 'youtube-thumb', title: 'YouTube Thumbnail', subtitle: 'Video preview', width: 1280, height: 720, size: '1280 x 720', toneClass: 'gallery-tone-4', illustrationClass: 'ill-youtube' },
+  { id: 'collage', title: 'Photo Collages', subtitle: 'Grid photo collage', width: 1080, height: 1080, size: '1080 x 1080', toneClass: 'gallery-tone-5', illustrationClass: 'ill-collage' },
+  { id: 'greeting', title: 'Greeting Card', subtitle: 'Invite and congratulate', width: 1200, height: 800, size: '1200 x 800', toneClass: 'gallery-tone-6', illustrationClass: 'ill-greeting' },
+  { id: 'invitation', title: 'Invitation', subtitle: 'Event invitation', width: 1080, height: 1350, size: '1080 x 1350', toneClass: 'gallery-tone-7', illustrationClass: 'ill-invitation' },
+  { id: 'postcard', title: 'Postcard', subtitle: 'Ready postcard design', width: 1480, height: 1050, size: '1480 x 1050', toneClass: 'gallery-tone-8', illustrationClass: 'ill-postcard' }
 ];
 const exportProperties = ['objectId', 'objectName', 'cornerRadii', 'shapeKind', 'fillLayers'];
 const maxHistorySteps = 6;
@@ -277,6 +279,10 @@ export default function App() {
   }, [cornerRadii, fillColor, fillOpacity, fontFamily, fontSize]);
 
   useEffect(() => {
+    if (workspaceMode === 'templates') {
+      return undefined;
+    }
+
     if (!canvasElementRef.current) {
       return undefined;
     }
@@ -410,7 +416,7 @@ export default function App() {
       fabricCanvasRef.current = null;
       void canvas.dispose();
     };
-  }, [activeFrameId]);
+  }, [activeFrameId, workspaceMode]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -678,6 +684,9 @@ export default function App() {
   const switchFrame = (frameId: string) => {
     saveCurrentFrame();
     setActiveFrameId(frameId);
+    setWorkspacePan({ x: 0, y: 0 });
+    setWorkspaceZoom(0.62);
+    setActiveTool('select');
   };
 
   const addFrame = (preset: FramePreset = presets[1]) => {
@@ -695,6 +704,10 @@ export default function App() {
     framesRef.current = nextFrames;
     setFrames(nextFrames);
     setActiveFrameId(nextFrame.id);
+    setWorkspaceMode('editor');
+    setWorkspacePan({ x: 0, y: 0 });
+    setWorkspaceZoom(0.62);
+    setActiveTool('select');
   };
 
   const deleteSelectedFrame = () => {
@@ -703,6 +716,38 @@ export default function App() {
     framesRef.current = nextFrames;
     setFrames(nextFrames);
     setActiveFrameId(nextFrames[0].id);
+    setWorkspacePan({ x: 0, y: 0 });
+    setWorkspaceZoom(0.62);
+    setActiveTool('select');
+  };
+
+  const openEditorWorkspace = () => {
+    setWorkspaceMode('editor');
+    setWorkspacePan({ x: 0, y: 0 });
+    setWorkspaceZoom(0.62);
+    setActiveTool('select');
+  };
+
+  const createProjectFromTemplate = (template: GalleryTemplate) => {
+    const nextFrame: DesignFrame = {
+      id: createId(),
+      name: template.title,
+      description: template.subtitle,
+      width: template.width,
+      height: template.height,
+      backgroundColor: '#ffffff',
+      backgroundOpacity: 1,
+      backgroundMode: 'solid',
+      backgroundStops: createDefaultGradientStops('#ffffff', '#d9d9d9'),
+      // Empty canvas payload prevents addStarterObjects() for template-based projects.
+      json: { objects: [] }
+    };
+
+    historyRef.current = {};
+    framesRef.current = [nextFrame];
+    setFrames([nextFrame]);
+    setActiveFrameId(nextFrame.id);
+    openEditorWorkspace();
   };
 
   const addText = () => {
@@ -1408,14 +1453,14 @@ export default function App() {
             </div>
           </div>
           <nav aria-label="Workspace sections" className="topbar-nav">
-            <button aria-current={!isTemplatesMode ? 'page' : undefined} className={!isTemplatesMode ? 'topbar-nav-item active' : 'topbar-nav-item'} onClick={() => setWorkspaceMode('editor')} type="button">Home</button>
+            <button aria-current={!isTemplatesMode ? 'page' : undefined} className={!isTemplatesMode ? 'topbar-nav-item active' : 'topbar-nav-item'} onClick={openEditorWorkspace} type="button">Home</button>
             <button aria-current={isTemplatesMode ? 'page' : undefined} className={isTemplatesMode ? 'topbar-nav-item active' : 'topbar-nav-item'} onClick={() => setWorkspaceMode('templates')} type="button">Templates</button>
             <button className="topbar-nav-item" type="button">Resources</button>
             <button className="topbar-nav-item" type="button">Support</button>
           </nav>
           <div className="topbar-actions">
             {isTemplatesMode ? (
-              <button className="primary-button topbar-action-pill topbar-action-primary" onClick={() => setWorkspaceMode('editor')} title="Open editor" type="button">CREATE DESIGN <span aria-hidden className="topbar-plus-badge">+</span></button>
+              <button className="primary-button topbar-action-pill topbar-action-primary" onClick={openEditorWorkspace} title="Open editor" type="button">CREATE DESIGN <span aria-hidden className="topbar-plus-badge">+</span></button>
             ) : (
               <>
                 <div className="topbar-pill-group" aria-label="Workspace zoom">
@@ -1448,7 +1493,7 @@ export default function App() {
             </div>
             <div className="templates-gallery-grid">
               {galleryTemplates.map((item) => (
-                <button className={`templates-gallery-card ${item.toneClass}`} key={item.id} onClick={() => setWorkspaceMode('editor')} type="button">
+                <button className={`templates-gallery-card ${item.toneClass}`} key={item.id} onClick={() => createProjectFromTemplate(item)} type="button">
                   <div className="templates-gallery-copy">
                     <strong>{item.title}</strong>
                     <p>{item.subtitle}</p>
@@ -1519,10 +1564,10 @@ export default function App() {
             </div>
             <div className="floating-toolbar" aria-label="Object tools">
               <button className={activeTool === 'select' ? 'active' : ''} onClick={() => setActiveTool('select')} title="Select (V)" type="button"><MousePointer2 size={20} /><span>V</span></button>
-              <button onClick={addText} title="Add text" type="button"><Type size={22} /><span>T</span></button>
-              <button onClick={addRect} title="Add rectangle" type="button"><Square size={20} /><span>B</span></button>
-              <button onClick={addCircle} title="Add circle" type="button"><CircleIcon size={20} /><span>C</span></button>
-              <button onClick={addTriangle} title="Add triangle" type="button"><TriangleIcon size={20} /><span>P</span></button>
+              <button className={activeTool === 'text' ? 'active' : ''} onClick={() => setActiveTool('text')} title="Text (T)" type="button"><Type size={22} /><span>T</span></button>
+              <button className={activeTool === 'box' ? 'active' : ''} onClick={() => setActiveTool('box')} title="Box (B)" type="button"><Square size={20} /><span>B</span></button>
+              <button className={activeTool === 'circle' ? 'active' : ''} onClick={() => setActiveTool('circle')} title="Circle (C)" type="button"><CircleIcon size={20} /><span>C</span></button>
+              <button className={activeTool === 'shape' ? 'active' : ''} onClick={() => setActiveTool('shape')} title="Shape (P)" type="button"><TriangleIcon size={20} /><span>P</span></button>
               <button onClick={() => fileInputRef.current?.click()} title="Image (I)" type="button"><ImagePlus size={20} /><span>I</span></button>
               <div className="toolbar-help">
                 <button aria-label="Show shortcuts" title="Shortcuts" type="button">?</button>
