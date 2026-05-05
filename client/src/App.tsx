@@ -418,6 +418,7 @@ export default function App() {
       const isEditingField = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.tagName === 'SELECT' || target?.isContentEditable;
       if (isEditingField) return;
       const key = event.key.toLowerCase();
+      const code = event.code;
       if (key === ' ') {
         event.preventDefault();
         setSpacePressed(true);
@@ -428,45 +429,49 @@ export default function App() {
         removeSelected();
       }
       if (!event.ctrlKey && !event.metaKey && !event.altKey) {
-        if (key === 'v') {
+        if (code === 'KeyV' || key === 'v') {
           event.preventDefault();
           setActiveTool('select');
         }
-        if (key === 't') {
+        if (code === 'KeyT' || key === 't') {
           event.preventDefault();
           setActiveTool('text');
         }
-        if (key === 'b' || key === 'r') {
+        if (code === 'KeyB' || code === 'KeyR' || key === 'b' || key === 'r') {
           event.preventDefault();
           setActiveTool('box');
         }
-        if (key === 'c') {
+        if (code === 'KeyC' || key === 'c') {
           event.preventDefault();
           setActiveTool('circle');
         }
-        if (key === 'p') {
+        if (code === 'KeyP' || key === 'p') {
           event.preventDefault();
           setActiveTool('shape');
         }
-        if (key === 'i') {
+        if (code === 'KeyI' || key === 'i') {
           event.preventDefault();
           fileInputRef.current?.click();
         }
       }
       if (!event.ctrlKey && !event.metaKey) return;
-      if (key === 'c') {
+      if (code === 'KeyC' || key === 'c') {
         event.preventDefault();
         void copySelected();
       }
-      if (key === 'v') {
+      if (code === 'KeyV' || key === 'v') {
         event.preventDefault();
         void pasteSelected();
       }
-      if (key === 'z') {
+      if (code === 'KeyZ' || key === 'z') {
         event.preventDefault();
-        undoFrame();
+        if (event.shiftKey) {
+          redoFrame();
+        } else {
+          undoFrame();
+        }
       }
-      if (key === 'y') {
+      if (code === 'KeyY' || key === 'y') {
         event.preventDefault();
         redoFrame();
       }
@@ -1514,10 +1519,10 @@ export default function App() {
             </div>
             <div className="floating-toolbar" aria-label="Object tools">
               <button className={activeTool === 'select' ? 'active' : ''} onClick={() => setActiveTool('select')} title="Select (V)" type="button"><MousePointer2 size={20} /><span>V</span></button>
-              <button className={activeTool === 'text' ? 'active' : ''} onClick={() => setActiveTool('text')} title="Text (T)" type="button"><Type size={22} /><span>T</span></button>
-              <button className={activeTool === 'box' ? 'active' : ''} onClick={() => setActiveTool('box')} title="Box (B)" type="button"><Square size={20} /><span>B</span></button>
-              <button className={activeTool === 'circle' ? 'active' : ''} onClick={() => setActiveTool('circle')} title="Circle (C)" type="button"><CircleIcon size={20} /><span>C</span></button>
-              <button className={activeTool === 'shape' ? 'active' : ''} onClick={() => setActiveTool('shape')} title="Shape (P)" type="button"><TriangleIcon size={20} /><span>P</span></button>
+              <button onClick={addText} title="Add text" type="button"><Type size={22} /><span>T</span></button>
+              <button onClick={addRect} title="Add rectangle" type="button"><Square size={20} /><span>B</span></button>
+              <button onClick={addCircle} title="Add circle" type="button"><CircleIcon size={20} /><span>C</span></button>
+              <button onClick={addTriangle} title="Add triangle" type="button"><TriangleIcon size={20} /><span>P</span></button>
               <button onClick={() => fileInputRef.current?.click()} title="Image (I)" type="button"><ImagePlus size={20} /><span>I</span></button>
               <div className="toolbar-help">
                 <button aria-label="Show shortcuts" title="Shortcuts" type="button">?</button>

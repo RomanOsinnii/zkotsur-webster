@@ -43,6 +43,12 @@ jobs:
         run: |
           node -e "
           const fs = require('fs');
+          if (!fs.existsSync('vitest-report.json')) {
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'passed=0\n');
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'failed=1\n');
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'failed_tests<<EOF\nReport file not generated\nEOF\n');
+            process.exit(0);
+          }
           const report = JSON.parse(fs.readFileSync('vitest-report.json', 'utf8'));
           const passed = report.numPassedTests ?? 0;
           const failed = report.numFailedTests ?? 0;
@@ -111,6 +117,12 @@ jobs:
         run: |
           node -e "
           const fs = require('fs');
+          if (!fs.existsSync('jest-report.json')) {
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'passed=0\n');
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'failed=1\n');
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'failed_tests<<EOF\nReport file not generated\nEOF\n');
+            process.exit(0);
+          }
           const report = JSON.parse(fs.readFileSync('jest-report.json', 'utf8'));
           const passed = report.numPassedTests ?? 0;
           const failed = report.numFailedTests ?? 0;
