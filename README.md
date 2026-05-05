@@ -31,7 +31,22 @@ After startup:
 
 - Client: `http://localhost:8080`
 - Server health endpoint: `http://localhost:3000/api/health`
+- Swagger (OpenAPI): `http://localhost:3000/api/docs`
 - PostgreSQL: `localhost:5432`
+
+If you run `docker compose up --build` in the foreground and stop with `Ctrl+C`, Docker exits with code `1` after graceful shutdown. This is expected behavior.
+
+## API Endpoints
+
+Current documented endpoints:
+
+- `GET /api/health`
+- `GET /api/templates`
+- `GET /api/templates/:id`
+- `POST /api/templates`
+- `GET /api/projects`
+- `GET /api/projects/:id`
+- `POST /api/projects`
 
 ## Run Locally without Docker
 

@@ -1,13 +1,23 @@
 ﻿import { ChangeEvent, PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent, useEffect, useRef, useState } from 'react';
 import { Canvas, Circle, FabricImage, FabricObject, Path, Pattern, Point, Rect, Textbox, Triangle } from 'fabric';
-import { Download, Grid3X3, ImagePlus, MousePointer2, Plus, Square, Trash2, Type, Upload } from 'lucide-react';
+import { Circle as CircleIcon, Download, GraduationCap, Grid3X3, ImagePlus, MousePointer2, Plus, Shapes, Sparkles, Square, Trash2, Triangle as TriangleIcon, Type, Upload } from 'lucide-react';
 import JSZip from 'jszip';
+import owlMascot from './public/owl.png';
 
 type FramePreset = {
   name: string;
   description: string;
   width: number;
   height: number;
+};
+
+type GalleryTemplate = {
+  id: string;
+  title: string;
+  subtitle: string;
+  size: string;
+  toneClass: string;
+  illustrationClass: string;
 };
 
 type DesignFrame = FramePreset & {
@@ -84,6 +94,16 @@ const presets: FramePreset[] = [
   { name: 'Presentation', description: 'Wide slide', width: 1280, height: 720 },
   { name: 'Poster', description: 'Print-friendly layout', width: 900, height: 1200 }
 ];
+const galleryTemplates: GalleryTemplate[] = [
+  { id: 'instagram-post', title: 'Instagram Post', subtitle: 'Social network post', size: '1080 x 1080', toneClass: 'gallery-tone-1', illustrationClass: 'ill-instagram' },
+  { id: 'instagram-story', title: 'Instagram Story', subtitle: 'Story mockup', size: '1080 x 1920', toneClass: 'gallery-tone-2', illustrationClass: 'ill-phone' },
+  { id: 'facebook-cover', title: 'Facebook Cover', subtitle: 'Page cover banner', size: '820 x 312', toneClass: 'gallery-tone-3', illustrationClass: 'ill-cover' },
+  { id: 'youtube-thumb', title: 'YouTube Thumbnail', subtitle: 'Video preview', size: '1280 x 720', toneClass: 'gallery-tone-4', illustrationClass: 'ill-youtube' },
+  { id: 'collage', title: 'Photo Collages', subtitle: 'Grid photo collage', size: '1080 x 1080', toneClass: 'gallery-tone-5', illustrationClass: 'ill-collage' },
+  { id: 'greeting', title: 'Greeting Card', subtitle: 'Invite and congratulate', size: '1200 x 800', toneClass: 'gallery-tone-6', illustrationClass: 'ill-greeting' },
+  { id: 'invitation', title: 'Invitation', subtitle: 'Event invitation', size: '1080 x 1350', toneClass: 'gallery-tone-7', illustrationClass: 'ill-invitation' },
+  { id: 'postcard', title: 'Postcard', subtitle: 'Ready postcard design', size: '1480 x 1050', toneClass: 'gallery-tone-8', illustrationClass: 'ill-postcard' }
+];
 const exportProperties = ['objectId', 'objectName', 'cornerRadii', 'shapeKind', 'fillLayers'];
 const maxHistorySteps = 6;
 const snapThreshold = 8;
@@ -100,6 +120,18 @@ const cornerFields: { key: keyof CornerRadii; label: string }[] = [
   { key: 'bottomRight', label: 'Bottom right' },
   { key: 'bottomLeft', label: 'Bottom left' }
 ];
+
+function getTemplateToneClass(index: number) {
+  const toneIndex = (index % 8) + 1;
+  return `template-tone-${toneIndex}`;
+}
+
+function getTemplatePreviewClass(frame: DesignFrame, index: number) {
+  const ratio = frame.width / frame.height;
+  const shape = ratio > 1.2 ? 'landscape' : ratio < 0.9 ? 'portrait' : 'square';
+  const tone = (index % 8) + 1;
+  return `template-thumb-${shape} template-thumb-tone-${tone}`;
+}
 
 function createId() {
   const randomUuid = globalThis.crypto?.randomUUID;
@@ -204,6 +236,7 @@ export default function App() {
   const [frameWidthInput, setFrameWidthInput] = useState('');
   const [frameHeightInput, setFrameHeightInput] = useState('');
   const [activeTool, setActiveTool] = useState<ToolMode>('select');
+  const [workspaceMode, setWorkspaceMode] = useState<'templates' | 'editor'>('templates');
 
   const activeFrame = frames.find((frame) => frame.id === activeFrameId) ?? frames[0];
   const zoomPercent = Math.round(workspaceZoom * 100);
@@ -1255,9 +1288,10 @@ export default function App() {
   const isShapeSelected = Boolean(selectedObject && selectedObject.type !== 'image' && !isTextSelected);
   const canEditCorners = Boolean(selectedObject && isCornerEditable(selectedObject));
   const activeFillLayer = fillLayers.find((layer) => layer.id === activeFillLayerId) ?? fillLayers[0];
+  const isTemplatesMode = workspaceMode === 'templates';
 
   return (
-    <main className="designer-shell">
+    <main className={isTemplatesMode ? 'designer-shell templates-mode' : 'designer-shell'}>
       <aside className="sidebar" aria-label="Project tools">
         <div className="brand-block">
           <span className="brand-mark">W</span>
@@ -1267,172 +1301,249 @@ export default function App() {
           </div>
         </div>
 
-        <section className="tool-section">
-          <div className="section-heading">
-            <h2>Frames</h2>
-            <button onClick={() => addFrame()} title="Add frame" type="button">
-              <Plus size={16} />
-            </button>
-          </div>
-          <div className="template-list">
-            {frames.map((frame) => (
-              <button className={frame.id === activeFrameId ? 'template-card active' : 'template-card'} key={frame.id} onClick={() => switchFrame(frame.id)} type="button">
-                <strong>{frame.name}</strong>
-                <span>{frame.description}</span>
-                <small>{frame.width} x {frame.height}</small>
-              </button>
-            ))}
-          </div>
-          <div className="preset-row">
-            {presets.map((preset) => (
-              <button key={preset.name} onClick={() => addFrame(preset)} type="button">
-                {preset.name}
-              </button>
-            ))}
-          </div>
-          <button className="wide-action muted-action" disabled={frames.length <= 1} onClick={deleteSelectedFrame} title="Delete current frame" type="button">
-            Delete frame
-          </button>
-        </section>
+        <nav className="sidebar-quick-nav" aria-label="Main tools">
+          <button className="quick-nav-item active" type="button"><Grid3X3 size={18} /><span>Templates</span></button>
+          <button className="quick-nav-item" type="button"><Upload size={18} /><span>Uploads</span></button>
+          <button className="quick-nav-item" type="button"><Shapes size={18} /><span>Elements</span></button>
+          <button className="quick-nav-item" type="button"><Type size={18} /><span>Text</span></button>
+          <button className="quick-nav-item" type="button"><ImagePlus size={18} /><span>Photos</span></button>
+          <button className="quick-nav-item" type="button"><Sparkles size={18} /><span>Styles</span></button>
+          <button className="quick-nav-item" type="button"><GraduationCap size={18} /><span>Learn</span></button>
+        </nav>
 
-        <section className="tool-section">
-          <h2>Objects</h2>
-          <div className="icon-grid">
-            <button onClick={addText} type="button"><Type size={20} /><span>Text</span></button>
-            <button onClick={addRect} type="button"><Square size={20} /><span>Box</span></button>
-            <button onClick={addCircle} type="button"><span>в—‹</span><span>Circle</span></button>
-            <button onClick={addTriangle} type="button"><span>в–і</span><span>Shape</span></button>
-          </div>
-          <button className="wide-action" onClick={() => fileInputRef.current?.click()} title="Upload an image into the current frame" type="button">
-            <ImagePlus size={18} /> Add image
-          </button>
-          <input accept="image/*" hidden onChange={handleImageUpload} ref={fileInputRef} type="file" />
-        </section>
-
-        <section className="tool-section">
-          <h2>Layers</h2>
-          <div className="layer-tree">
-            {layers.map((layer) => (
-              <button className={layer.active ? 'layer-tree-row active' : 'layer-tree-row'} key={layer.id} onClick={() => selectLayer(layer.index)} type="button">
-                <strong>{layer.name}</strong>
-                <span>{layer.type}</span>
+        {!isTemplatesMode ? (
+          <>
+            <section className="tool-section">
+              <div className="section-heading">
+                <h2>Frames</h2>
+                <button onClick={() => addFrame()} title="Add frame" type="button">
+                  <Plus size={16} />
+                </button>
+              </div>
+              <div className="template-list">
+                {frames.map((frame, index) => (
+                  <button className={`template-card ${getTemplateToneClass(index)}${frame.id === activeFrameId ? ' active' : ''}`} key={frame.id} onClick={() => switchFrame(frame.id)} type="button">
+                    <div className="template-card-copy">
+                      <strong>{frame.name}</strong>
+                      <span>{frame.description}</span>
+                      <small>{frame.width} x {frame.height}</small>
+                    </div>
+                    <div aria-hidden className={`template-thumb ${getTemplatePreviewClass(frame, index)}`}>
+                      <i className="template-thumb-canvas" />
+                      <i className="template-thumb-shape template-thumb-shape-main" />
+                      <i className="template-thumb-shape template-thumb-shape-accent" />
+                      <i className="template-thumb-badge" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <div className="preset-row">
+                {presets.map((preset) => (
+                  <button key={preset.name} onClick={() => addFrame(preset)} type="button">
+                    {preset.name}
+                  </button>
+                ))}
+              </div>
+              <button className="wide-action muted-action" disabled={frames.length <= 1} onClick={deleteSelectedFrame} title="Delete current frame" type="button">
+                Delete frame
               </button>
-            ))}
-          </div>
-        </section>
+            </section>
 
-        <section className="tool-section">
-          <h2>Project</h2>
-          <div className="preset-row">
-            <button onClick={undoFrame} title="Ctrl+Z" type="button">Undo</button>
-            <button onClick={redoFrame} title="Ctrl+Y" type="button">Redo</button>
-          </div>
-          <button className="wide-action" onClick={exportProject} title="Export project as ZIP with JSON and image assets" type="button"><Download size={18} /> Export project</button>
-          <button className="wide-action" onClick={() => importInputRef.current?.click()} title="Import Webster project ZIP" type="button"><Upload size={18} /> Import project</button>
-          <input accept=".zip,application/zip" hidden onChange={importProject} ref={importInputRef} type="file" />
-        </section>
+            <section className="tool-section">
+              <h2>Objects</h2>
+              <div className="icon-grid">
+                <button onClick={addText} type="button"><Type size={20} /><span>Text</span></button>
+                <button onClick={addRect} type="button"><Square size={20} /><span>Box</span></button>
+                <button onClick={addCircle} type="button"><CircleIcon size={20} /><span>Circle</span></button>
+                <button onClick={addTriangle} type="button"><TriangleIcon size={20} /><span>Shape</span></button>
+              </div>
+              <button className="wide-action" onClick={() => fileInputRef.current?.click()} title="Upload an image into the current frame" type="button">
+                <ImagePlus size={18} /> Add image
+              </button>
+              <input accept="image/*" hidden onChange={handleImageUpload} ref={fileInputRef} type="file" />
+            </section>
+
+            <section className="tool-section">
+              <h2>Layers</h2>
+              <div className="layer-tree">
+                {layers.map((layer) => (
+                  <button className={layer.active ? 'layer-tree-row active' : 'layer-tree-row'} key={layer.id} onClick={() => selectLayer(layer.index)} type="button">
+                    <strong>{layer.name}</strong>
+                    <span>{layer.type}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="tool-section">
+              <h2>Project</h2>
+              <div className="preset-row">
+                <button onClick={undoFrame} title="Ctrl+Z" type="button">Undo</button>
+                <button onClick={redoFrame} title="Ctrl+Y" type="button">Redo</button>
+              </div>
+              <button className="wide-action" onClick={exportProject} title="Export project as ZIP with JSON and image assets" type="button"><Download size={18} /> Export project</button>
+              <button className="wide-action" onClick={() => importInputRef.current?.click()} title="Import Webster project ZIP" type="button"><Upload size={18} /> Import project</button>
+              <input accept=".zip,application/zip" hidden onChange={importProject} ref={importInputRef} type="file" />
+            </section>
+          </>
+        ) : null}
+
+        <div aria-hidden className="sidebar-mascot" title="Webster owl mascot">
+          <img alt="" className="sidebar-mascot-image" src={owlMascot} />
+        </div>
       </aside>
 
       <section className="workspace" aria-label="Design workspace">
         <header className="topbar">
-          <div>
-            <p className="eyebrow">Current project</p>
-            <strong>{activeFrame.name}</strong>
-          </div>
-          <div className="topbar-actions">
-            <div className="zoom-control" aria-label="Workspace zoom">
-              <button onClick={() => setZoom(workspaceZoom - 0.1)} title="Zoom out" type="button">-</button>
-              <button onClick={() => { setWorkspacePan({ x: 0, y: 0 }); setZoom(0.62); }} title="Reset zoom and pan" type="button">{zoomPercent}%</button>
-              <button onClick={() => setZoom(workspaceZoom + 0.1)} title="Zoom in" type="button">+</button>
+          <div className="topbar-brand">
+            <span className="topbar-brand-mark">W</span>
+            <div>
+              <strong className="topbar-brand-title">{isTemplatesMode ? 'Creative Craft' : activeFrame.name}</strong>
+              <p className="eyebrow topbar-brand-subtitle">{isTemplatesMode ? 'Design made simple. Creations made brilliant.' : `${activeFrame.width} x ${activeFrame.height} · Design made simple`}</p>
             </div>
-            <button className={showGrid ? 'ghost-button active' : 'ghost-button'} onClick={() => setShowGrid((value) => !value)} title="Toggle grid" type="button">
-              <Grid3X3 size={18} /> Grid
-            </button>
-            <button className="primary-button" onClick={exportFrame} title="Export current frame as PNG" type="button"><Download size={18} /> Export PNG</button>
+          </div>
+          <nav aria-label="Workspace sections" className="topbar-nav">
+            <button aria-current={!isTemplatesMode ? 'page' : undefined} className={!isTemplatesMode ? 'topbar-nav-item active' : 'topbar-nav-item'} onClick={() => setWorkspaceMode('editor')} type="button">Home</button>
+            <button aria-current={isTemplatesMode ? 'page' : undefined} className={isTemplatesMode ? 'topbar-nav-item active' : 'topbar-nav-item'} onClick={() => setWorkspaceMode('templates')} type="button">Templates</button>
+            <button className="topbar-nav-item" type="button">Resources</button>
+            <button className="topbar-nav-item" type="button">Support</button>
+          </nav>
+          <div className="topbar-actions">
+            {isTemplatesMode ? (
+              <button className="primary-button topbar-action-pill topbar-action-primary" onClick={() => setWorkspaceMode('editor')} title="Open editor" type="button">CREATE DESIGN <span aria-hidden className="topbar-plus-badge">+</span></button>
+            ) : (
+              <>
+                <div className="topbar-pill-group" aria-label="Workspace zoom">
+                  <button className="topbar-pill-button" onClick={() => setZoom(workspaceZoom - 0.1)} title="Zoom out" type="button">-</button>
+                  <button className="topbar-pill-button topbar-pill-value" onClick={() => { setWorkspacePan({ x: 0, y: 0 }); setZoom(0.62); }} title="Reset zoom and pan" type="button">{zoomPercent}%</button>
+                  <button className="topbar-pill-button" onClick={() => setZoom(workspaceZoom + 0.1)} title="Zoom in" type="button">+</button>
+                </div>
+                <button className={showGrid ? 'topbar-action-pill active' : 'topbar-action-pill'} onClick={() => setShowGrid((value) => !value)} title="Toggle grid" type="button">
+                  <Grid3X3 size={16} /> Grid
+                </button>
+                <button className="primary-button topbar-action-pill topbar-action-primary" onClick={exportFrame} title="Export current frame as PNG" type="button"><Download size={16} /> Export PNG</button>
+              </>
+            )}
           </div>
         </header>
-        <div
-          className={`${showGrid ? 'canvas-stage grid-visible' : 'canvas-stage'} ${spacePressed ? 'pan-mode' : ''}`}
-          onPointerDown={startWorkspacePan}
-          onPointerEnter={handleStagePointerEnter}
-          onPointerLeave={handleStagePointerLeave}
-          onPointerMove={handleStagePointerMove}
-          onWheel={handleWorkspaceWheel}
-          ref={canvasStageRef}
-        >
-          {showGrid ? (
-            <>
-              <div aria-hidden className="dot-grid dot-grid-base" />
-              <div aria-hidden className="dot-grid dot-grid-focus dot-grid-focus-lg" />
-              <div aria-hidden className="dot-grid dot-grid-focus dot-grid-focus-md" />
-              <div aria-hidden className="dot-grid dot-grid-focus dot-grid-focus-sm" />
-            </>
-          ) : null}
-          <div className="active-canvas-frame" ref={activeFrameRef} style={{ transform: `translate(${workspacePan.x}px, ${workspacePan.y}px) scale(${workspaceZoom})` }}>
-            <canvas ref={canvasElementRef} />
-            {snapLines.map((line, index) => (
-              <div
-                key={index}
-                className={`snap-line snap-line-${line.direction}`}
-                style={{
-                  [line.direction === 'horizontal' ? 'top' : 'left']: `${line.position}px`
-                }}
-              />
-            ))}
-            {resizeHandles.map((handle) => (
-              <button
-                aria-label={`Resize from ${handle.key} corner`}
-                className="corner-resize-handle"
-                key={handle.key}
-                onPointerDown={(event) => startResizeDrag(event, handle.key)}
-                style={{ left: handle.left, top: handle.top, cursor: handle.cursor }}
-                title="Drag to resize"
-                type="button"
-              />
-            ))}
-            {cornerHandles.map((handle) => (
-              <button
-                aria-label={`Drag ${handle.key} radius handle. Hold Ctrl to edit only this corner.`}
-                className="corner-radius-handle"
-                key={handle.key}
-                onPointerDown={(event) => startCornerRadiusDrag(event, handle.key)}
-                style={{ left: handle.left, top: handle.top, cursor: handle.cursor }}
-                title="Drag: all corners. Ctrl+drag: only this corner."
-                type="button"
-              />
-            ))}
-          </div>
-          <div className="floating-toolbar" aria-label="Object tools">
-            <button className={activeTool === 'select' ? 'active' : ''} onClick={() => setActiveTool('select')} title="Select (V)" type="button"><MousePointer2 size={20} /><span>V</span></button>
-            <button className={activeTool === 'text' ? 'active' : ''} onClick={() => setActiveTool('text')} title="Text (T)" type="button"><Type size={22} /><span>T</span></button>
-            <button className={activeTool === 'box' ? 'active' : ''} onClick={() => setActiveTool('box')} title="Box (B)" type="button"><Square size={20} /><span>B</span></button>
-            <button className={activeTool === 'circle' ? 'active' : ''} onClick={() => setActiveTool('circle')} title="Circle (C)" type="button"><span className="tool-glyph">в—‹</span><span>C</span></button>
-            <button className={activeTool === 'shape' ? 'active' : ''} onClick={() => setActiveTool('shape')} title="Shape (P)" type="button"><span className="tool-glyph">в–і</span><span>P</span></button>
-            <button onClick={() => fileInputRef.current?.click()} title="Image (I)" type="button"><ImagePlus size={20} /><span>I</span></button>
-            <div className="toolbar-help">
-              <button aria-label="Show shortcuts" title="Shortcuts" type="button">?</button>
-              <div className="shortcut-popover" role="tooltip">
-                <span><kbd>Ctrl</kbd><kbd>Z</kbd> Undo</span>
-                <span><kbd>Ctrl</kbd><kbd>Y</kbd> Redo</span>
-                <span><kbd>Ctrl</kbd><kbd>C</kbd> Copy</span>
-                <span><kbd>Ctrl</kbd><kbd>V</kbd> Paste</span>
-                <span><kbd>V</kbd> Select</span>
-                <span><kbd>T</kbd> Text</span>
-                <span><kbd>B</kbd> Box</span>
-                <span><kbd>R</kbd> Box</span>
-                <span><kbd>C</kbd> Circle</span>
-                <span><kbd>P</kbd> Shape</span>
-                <span><kbd>I</kbd> Image</span>
-                <span><kbd>Wheel</kbd> Zoom workspace</span>
-                <span><kbd>Space</kbd><kbd>Drag</kbd> Pan workspace</span>
-                <span><kbd>Del</kbd> Delete selection</span>
-                <span><kbd>Square corner</kbd> Resize</span>
-                <span><kbd>Round corner</kbd> All radii</span>
-                <span><kbd>Ctrl</kbd><kbd>Round corner</kbd> One radius</span>
+        {isTemplatesMode ? (
+          <section className="templates-gallery" aria-label="Template gallery">
+            <div aria-hidden className="templates-decor">
+              <i className="decor-star decor-star-a" />
+              <i className="decor-star decor-star-b" />
+              <i className="decor-dot decor-dot-a" />
+              <i className="decor-dot decor-dot-b" />
+              <i className="decor-arc decor-arc-a" />
+              <i className="decor-arc decor-arc-b" />
+              <i className="decor-spark decor-spark-a" />
+            </div>
+            <div className="templates-gallery-head">
+              <h2>Templates</h2>
+              <span>Pick a format and start designing in one click.</span>
+            </div>
+            <div className="templates-gallery-grid">
+              {galleryTemplates.map((item) => (
+                <button className={`templates-gallery-card ${item.toneClass}`} key={item.id} onClick={() => setWorkspaceMode('editor')} type="button">
+                  <div className="templates-gallery-copy">
+                    <strong>{item.title}</strong>
+                    <p>{item.subtitle}</p>
+                    <small>{item.size}</small>
+                    <span className="templates-gallery-cta">Use template</span>
+                  </div>
+                  <div aria-hidden className={`templates-gallery-illustration ${item.illustrationClass}`}>
+                    <i className="illustration-frame" />
+                    <i className="illustration-accent" />
+                    <i className="illustration-badge" />
+                    <i className="illustration-line" />
+                  </div>
+                </button>
+              ))}
+            </div>
+          </section>
+        ) : (
+          <div
+            className={`${showGrid ? 'canvas-stage grid-visible' : 'canvas-stage'} ${spacePressed ? 'pan-mode' : ''}`}
+            onPointerDown={startWorkspacePan}
+            onPointerEnter={handleStagePointerEnter}
+            onPointerLeave={handleStagePointerLeave}
+            onPointerMove={handleStagePointerMove}
+            onWheel={handleWorkspaceWheel}
+            ref={canvasStageRef}
+          >
+            {showGrid ? (
+              <>
+                <div aria-hidden className="dot-grid dot-grid-base" />
+                <div aria-hidden className="dot-grid dot-grid-focus dot-grid-focus-lg" />
+                <div aria-hidden className="dot-grid dot-grid-focus dot-grid-focus-md" />
+                <div aria-hidden className="dot-grid dot-grid-focus dot-grid-focus-sm" />
+              </>
+            ) : null}
+            <div className="active-canvas-frame" ref={activeFrameRef} style={{ transform: `translate(${workspacePan.x}px, ${workspacePan.y}px) scale(${workspaceZoom})` }}>
+              <canvas ref={canvasElementRef} />
+              {snapLines.map((line, index) => (
+                <div
+                  key={index}
+                  className={`snap-line snap-line-${line.direction}`}
+                  style={{
+                    [line.direction === 'horizontal' ? 'top' : 'left']: `${line.position}px`
+                  }}
+                />
+              ))}
+              {resizeHandles.map((handle) => (
+                <button
+                  aria-label={`Resize from ${handle.key} corner`}
+                  className="corner-resize-handle"
+                  key={handle.key}
+                  onPointerDown={(event) => startResizeDrag(event, handle.key)}
+                  style={{ left: handle.left, top: handle.top, cursor: handle.cursor }}
+                  title="Drag to resize"
+                  type="button"
+                />
+              ))}
+              {cornerHandles.map((handle) => (
+                <button
+                  aria-label={`Drag ${handle.key} radius handle. Hold Ctrl to edit only this corner.`}
+                  className="corner-radius-handle"
+                  key={handle.key}
+                  onPointerDown={(event) => startCornerRadiusDrag(event, handle.key)}
+                  style={{ left: handle.left, top: handle.top, cursor: handle.cursor }}
+                  title="Drag: all corners. Ctrl+drag: only this corner."
+                  type="button"
+                />
+              ))}
+            </div>
+            <div className="floating-toolbar" aria-label="Object tools">
+              <button className={activeTool === 'select' ? 'active' : ''} onClick={() => setActiveTool('select')} title="Select (V)" type="button"><MousePointer2 size={20} /><span>V</span></button>
+              <button className={activeTool === 'text' ? 'active' : ''} onClick={() => setActiveTool('text')} title="Text (T)" type="button"><Type size={22} /><span>T</span></button>
+              <button className={activeTool === 'box' ? 'active' : ''} onClick={() => setActiveTool('box')} title="Box (B)" type="button"><Square size={20} /><span>B</span></button>
+              <button className={activeTool === 'circle' ? 'active' : ''} onClick={() => setActiveTool('circle')} title="Circle (C)" type="button"><CircleIcon size={20} /><span>C</span></button>
+              <button className={activeTool === 'shape' ? 'active' : ''} onClick={() => setActiveTool('shape')} title="Shape (P)" type="button"><TriangleIcon size={20} /><span>P</span></button>
+              <button onClick={() => fileInputRef.current?.click()} title="Image (I)" type="button"><ImagePlus size={20} /><span>I</span></button>
+              <div className="toolbar-help">
+                <button aria-label="Show shortcuts" title="Shortcuts" type="button">?</button>
+                <div className="shortcut-popover" role="tooltip">
+                  <span><kbd>Ctrl</kbd><kbd>Z</kbd> Undo</span>
+                  <span><kbd>Ctrl</kbd><kbd>Y</kbd> Redo</span>
+                  <span><kbd>Ctrl</kbd><kbd>C</kbd> Copy</span>
+                  <span><kbd>Ctrl</kbd><kbd>V</kbd> Paste</span>
+                  <span><kbd>V</kbd> Select</span>
+                  <span><kbd>T</kbd> Text</span>
+                  <span><kbd>B</kbd> Box</span>
+                  <span><kbd>R</kbd> Box</span>
+                  <span><kbd>C</kbd> Circle</span>
+                  <span><kbd>P</kbd> Shape</span>
+                  <span><kbd>I</kbd> Image</span>
+                  <span><kbd>Wheel</kbd> Zoom workspace</span>
+                  <span><kbd>Space</kbd><kbd>Drag</kbd> Pan workspace</span>
+                  <span><kbd>Del</kbd> Delete selection</span>
+                  <span><kbd>Square corner</kbd> Resize</span>
+                  <span><kbd>Round corner</kbd> All radii</span>
+                  <span><kbd>Ctrl</kbd><kbd>Round corner</kbd> One radius</span>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </section>
 
       <aside className="properties" aria-label="Object properties">
