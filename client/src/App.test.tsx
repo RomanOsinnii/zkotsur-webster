@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import App from './App';
 
 vi.mock('fabric', () => {
@@ -160,11 +161,13 @@ vi.mock('fabric', () => {
 });
 
 describe('App', () => {
-  it('renders the design editor surface', () => {
+  it('renders the design editor surface', async () => {
+    const user = userEvent.setup();
     render(<App />);
 
     expect(screen.getByRole('heading', { name: /design editor/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /text/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /create design/i }));
     expect(screen.getByRole('button', { name: /export png/i })).toBeInTheDocument();
   });
 });
