@@ -64,7 +64,7 @@ export function useFrameActions({
     resetWorkspace();
   };
 
-  const addFrame = (preset: FramePreset = { name: 'Frame', width: 1080, height: 1080 }) => {
+  const addFrame = (preset: FramePreset = { name: 'Frame', description: 'Custom frame', width: 1080, height: 1080 }) => {
     saveCurrentFrame();
     const nextFrame: DesignFrame = {
       ...preset,
