@@ -1,82 +1,79 @@
-import { Body, Controller, Get, NotFoundException, Param, Post } from '@nestjs/common';
-import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiParam, ApiProperty, ApiTags } from '@nestjs/swagger';
-
-type ProjectItem = {
-  id: string;
-  name: string;
-  frameCount: number;
-  updatedAt: string;
-};
-
-class ProjectDto {
-  @ApiProperty({ example: 'prj_d39a1' })
-  id!: string;
-
-  @ApiProperty({ example: 'Summer Campaign' })
-  name!: string;
-
-  @ApiProperty({ example: 6 })
-  frameCount!: number;
-
-  @ApiProperty({ example: '2026-05-05T16:21:19.000Z' })
-  updatedAt!: string;
-}
-
-class CreateProjectDto {
-  @ApiProperty({ example: 'Brand Kit' })
-  name!: string;
-
-  @ApiProperty({ example: 1, description: 'Initial number of frames' })
-  frameCount!: number;
-}
-
-function createId() {
-  if (typeof globalThis.crypto?.randomUUID === 'function') {
-    return globalThis.crypto.randomUUID();
-  }
-
-  return `prj_${Math.random().toString(36).slice(2, 8)}`;
-}
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Put, UseGuards } from '@nestjs/common';
+import {
+  ApiBadRequestResponse,
+  ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiTags
+} from '@nestjs/swagger';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AuthTokenPayload } from '../auth/auth.types';
+import { ApiErrorResponseDto } from '../common/dto/api-error-response.dto';
+import { CreateProjectDto } from './dto/create-project.dto';
+import { ProjectResponseDto } from './dto/project-response.dto';
+import { UpdateProjectDto } from './dto/update-project.dto';
+import { ProjectEntity } from './project.entity';
+import { ProjectsService } from './projects.service';
 
 @ApiTags('Projects')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller('api/projects')
 export class ProjectsController {
-  private readonly projects: ProjectItem[] = [
-    { id: createId(), name: 'Main Demo Project', frameCount: 3, updatedAt: new Date().toISOString() }
-  ];
+  constructor(private readonly projectsService: ProjectsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Get all projects' })
-  @ApiOkResponse({ type: ProjectDto, isArray: true })
-  getProjects(): ProjectItem[] {
-    return this.projects;
+  @ApiOperation({ summary: 'Get all persisted projects ordered by last update' })
+  @ApiOkResponse({ type: ProjectResponseDto, isArray: true })
+  getProjects(@CurrentUser() user: AuthTokenPayload): Promise<ProjectEntity[]> {
+    return this.projectsService.findAll(user.sub);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get project by id' })
-  @ApiParam({ name: 'id', description: 'Project id' })
-  @ApiOkResponse({ type: ProjectDto })
-  getProjectById(@Param('id') id: string): ProjectItem {
-    const project = this.projects.find((item) => item.id === id);
-    if (!project) {
-      throw new NotFoundException(`Project with id '${id}' was not found`);
-    }
-
-    return project;
+  @ApiOperation({ summary: 'Get a persisted project by id, including the full canvas JSON payload' })
+  @ApiParam({ name: 'id', description: 'Project id in UUID format' })
+  @ApiOkResponse({ type: ProjectResponseDto })
+  @ApiBadRequestResponse({ description: 'Invalid UUID or invalid request', type: ApiErrorResponseDto })
+  @ApiNotFoundResponse({ description: 'Project not found' })
+  getProjectById(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthTokenPayload): Promise<ProjectEntity> {
+    return this.projectsService.findOne(id, user.sub);
   }
 
   @Post()
-  @ApiOperation({ summary: 'Create project' })
-  @ApiCreatedResponse({ type: ProjectDto })
-  createProject(@Body() dto: CreateProjectDto): ProjectItem {
-    const next: ProjectItem = {
-      id: createId(),
-      name: dto.name,
-      frameCount: dto.frameCount,
-      updatedAt: new Date().toISOString()
-    };
+  @ApiOperation({ summary: 'Create a new persisted project from the current editor payload' })
+  @ApiCreatedResponse({ type: ProjectResponseDto })
+  @ApiBadRequestResponse({ description: 'Validation failed', type: ApiErrorResponseDto })
+  createProject(@Body() dto: CreateProjectDto, @CurrentUser() user: AuthTokenPayload): Promise<ProjectEntity> {
+    return this.projectsService.create(dto, user.sub);
+  }
 
-    this.projects.unshift(next);
-    return next;
+  @Put(':id')
+  @ApiOperation({ summary: 'Update an existing persisted project' })
+  @ApiParam({ name: 'id', description: 'Project id in UUID format' })
+  @ApiOkResponse({ type: ProjectResponseDto })
+  @ApiBadRequestResponse({ description: 'Invalid UUID or validation failed', type: ApiErrorResponseDto })
+  @ApiNotFoundResponse({ description: 'Project not found' })
+  updateProject(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateProjectDto,
+    @CurrentUser() user: AuthTokenPayload
+  ): Promise<ProjectEntity> {
+    return this.projectsService.update(id, dto, user.sub);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete a persisted project' })
+  @ApiParam({ name: 'id', description: 'Project id in UUID format' })
+  @ApiNoContentResponse({ description: 'Project deleted' })
+  @ApiBadRequestResponse({ description: 'Invalid UUID', type: ApiErrorResponseDto })
+  @ApiNotFoundResponse({ description: 'Project not found' })
+  async deleteProject(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthTokenPayload): Promise<void> {
+    await this.projectsService.remove(id, user.sub);
   }
 }

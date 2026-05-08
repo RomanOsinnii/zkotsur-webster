@@ -161,6 +161,18 @@ vi.mock('fabric', () => {
 });
 
 describe('App', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => []
+    })));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('renders the design editor surface', async () => {
     const user = userEvent.setup();
     render(<App />);

@@ -1,12 +1,75 @@
-# Webster Monorepo
+# Webster Graphic Editor
 
-Monorepo bootstrap for Webster with a minimal deployment-ready setup:
+Webster is a student full-stack graphic editor built for the Webster Track Full Stack challenge.  
+The current MVP proves a real end-to-end flow:
 
-- `client`: React + TypeScript + Vite
-- `server`: NestJS + TypeScript
-- `docker-compose.yml`: client, server, PostgreSQL
-- `.github/workflows/deploy.yml`: GitHub-hosted tests and VPS deployment through a self-hosted runner
-- `deploy.sh`: container rebuild, startup, and optional Telegram notification
+- create and edit a canvas-based design
+- manage multiple frames and layers
+- export PNG and ZIP project files
+- save projects to PostgreSQL through a NestJS API
+- register, log in, and access only your own saved projects
+- reopen saved projects and continue editing
+
+## Features
+
+- Fabric.js canvas editor
+- Text, shapes, image upload, gradients, rounded corners
+- Multi-frame projects
+- Layer selection with visibility toggle and simple reorder controls
+- Sidebar-driven tool panels for templates, uploads, elements, text, photos, styles, and help
+- Undo/redo
+- ZIP import/export for full editor projects
+- PNG export for the active frame
+- NestJS backend with Swagger docs
+- PostgreSQL project persistence
+- JWT authentication with protected project routes
+- Docker setup for client, server, and database
+
+## Tech Stack
+
+- Frontend: React, TypeScript, Vite, Fabric.js
+- Backend: NestJS, TypeScript, TypeORM, JWT, class-validator
+- Database: PostgreSQL
+- DevOps: Docker Compose, GitHub Actions
+
+## Architecture Overview
+
+### Client
+
+- Main editor UI currently lives in [client/src/App.tsx](client/src/App.tsx)
+- The editor stores project state primarily as:
+
+```ts
+{
+  frames: DesignFrame[]
+}
+```
+
+- Each frame contains metadata such as size/background plus Fabric canvas JSON
+- The frontend can persist this structure to the backend and also package it into ZIP exports
+
+### Server
+
+- NestJS app with auth + project CRUD endpoints
+- Users authenticate with email/password
+- JWT access tokens protect project routes
+- Projects are stored in PostgreSQL as:
+  - `id`
+  - `name`
+  - `description`
+  - `data` as `jsonb`
+  - `createdAt`
+  - `updatedAt`
+  - `ownerId`
+
+### Persistence Flow
+
+1. The editor serializes the current frame/canvas state
+2. The user logs in and receives a JWT access token
+3. The frontend sends the full project payload to `/api/projects` with the `Authorization` header
+4. NestJS validates the request DTO and resolves the authenticated user
+5. TypeORM saves the project into PostgreSQL under that user
+6. The saved project can later be loaded back into the editor by the same user
 
 ## Project Structure
 
@@ -14,12 +77,34 @@ Monorepo bootstrap for Webster with a minimal deployment-ready setup:
 .
 |-- client
 |-- server
-|-- .github
-|   `-- workflows
 |-- docker-compose.yml
 |-- deploy.sh
+|-- .env.example
 `-- README.md
 ```
+
+## Environment Variables
+
+Root `.env.example` contains Docker/backend settings:
+
+- `CLIENT_PORT`
+- `SERVER_PORT`
+- `POSTGRES_PORT`
+- `PORT`
+- `DB_SYNCHRONIZE`
+- `POSTGRES_HOST`
+- `POSTGRES_DB`
+- `POSTGRES_USER`
+- `POSTGRES_PASSWORD`
+- `POSTGRES_SSL`
+- `JWT_SECRET`
+- `JWT_EXPIRES_IN`
+
+Client `.env.example` contains:
+
+- `VITE_API_URL`
+
+For normal local development with Vite proxy, `VITE_API_URL` can stay empty.
 
 ## Run Locally with Docker
 
@@ -27,30 +112,29 @@ Monorepo bootstrap for Webster with a minimal deployment-ready setup:
 docker compose up --build
 ```
 
-After startup:
+Services after startup:
 
-- Client: `http://localhost:8080`
-- Server health endpoint: `http://localhost:3000/api/health`
-- Swagger (OpenAPI): `http://localhost:3000/api/docs`
+- Frontend: `http://localhost:8080`
+- Backend API: `http://localhost:3000/api`
+- Swagger docs: `http://localhost:3000/api/docs`
 - PostgreSQL: `localhost:5432`
 
-If you run `docker compose up --build` in the foreground and stop with `Ctrl+C`, Docker exits with code `1` after graceful shutdown. This is expected behavior.
+Notes:
 
-## API Endpoints
+- The frontend container talks to the backend through Nginx `/api` proxying
+- The backend container talks to PostgreSQL through `POSTGRES_HOST=db`
+- Docker Compose already wires the services together
 
-Current documented endpoints:
+## Run Locally without Full Docker
 
-- `GET /api/health`
-- `GET /api/templates`
-- `GET /api/templates/:id`
-- `POST /api/templates`
-- `GET /api/projects`
-- `GET /api/projects/:id`
-- `POST /api/projects`
+### 1. Start PostgreSQL only
 
-## Run Locally without Docker
+```bash
+cp .env.example .env
+docker compose up -d db
+```
 
-### Server
+### 2. Start backend
 
 ```bash
 cd server
@@ -58,138 +142,88 @@ npm install
 npm run start:dev
 ```
 
-### Client
+### 3. Start frontend
 
 ```bash
 cd client
+cp .env.example .env
 npm install
 npm run dev
 ```
 
-Vite proxies `/api` requests to the Nest server in local development.
+In local Vite development, requests to `/api` are proxied to `http://localhost:3000`.
+
+## API Overview
+
+Current important endpoints:
+
+- `GET /api/health`
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+- `GET /api/projects`
+- `GET /api/projects/:id`
+- `POST /api/projects`
+- `PUT /api/projects/:id`
+- `DELETE /api/projects/:id`
+- `GET /api/templates`
+- `GET /api/templates/:id`
+- `POST /api/templates`
+
+Swagger UI:
+
+- `http://localhost:3000/api/docs`
+
+## How to Verify Persistence
+
+Manual MVP flow to test before demo:
+
+1. Register a new user
+2. Log in
+3. Create or edit a design
+4. Save the project to backend
+5. Reload the page
+6. Log back in if needed
+7. Open the saved project from the project list
+8. Confirm the design is restored
+9. Continue editing and save changes
+
+Also test:
+
+- save as new project
+- delete saved project
+- verify another user cannot access someone else's project
+- click each sidebar button and confirm the corresponding panel opens
+- export PNG
+- export/import ZIP
+- invalid ZIP import message
+
+## Screenshots
+
+Add screenshots before submission:
+
+- `[ ]` editor home / canvas screen
+- `[ ]` saved projects flow
+- `[ ]` login / register flow
+- `[ ]` Swagger API docs
+- `[ ]` Dockerized running app
+
+## Docker Notes
+
+- `db` uses PostgreSQL 16 Alpine
+- `server` waits for database health before starting
+- `client` serves the Vite build through Nginx
+- `/api` requests from the frontend container are proxied to the NestJS container
+
+## Current MVP Limitations
+
+- Templates are still lightweight starter formats rather than rich prebuilt designs
+- No advanced image editing like crop/filters/masking
+- The editor is still concentrated in one large React component
+- Backend `templates` endpoints are still mock/in-memory
+- Schema management currently uses TypeORM `synchronize`
 
 ## CI/CD
 
-Workflow file: `.github/workflows/deploy.yml`
-
-- `test`: runs on a GitHub-hosted runner (`ubuntu-latest`)
-- `deploy`: runs only after successful tests on a self-hosted runner on the VPS
-
-### Deployment Flow
-
-1. Push to `main`
-2. GitHub starts the `test` job
-3. If the tests pass, GitHub starts the `deploy` job
-4. The `deploy` job runs directly on the VPS through the self-hosted runner
-5. The runner performs `actions/checkout` and then runs `./deploy.sh`
-6. `deploy.sh` executes `docker compose up --build -d`
-
-In this setup:
-
-- checks run on GitHub
-- deployment runs on the server
-- `git pull` on the server is not required
-- `appleboy/ssh-action` is not required
-
-## Self-Hosted Runner Setup on VPS
-
-The example below assumes Ubuntu.
-
-### 1. Install Base Packages
-
-```bash
-sudo apt update
-sudo apt install -y curl git
-```
-
-Install Docker and the Docker Compose plugin if they are not already available.
-
-### 2. Create the Runner Directory
-
-```bash
-mkdir -p ~/actions-runner
-cd ~/actions-runner
-```
-
-### 3. Download the Runner
-
-Open:
-
-`Repository -> Settings -> Actions -> Runners -> New self-hosted runner`
-
-Use the current Linux x64 download command from GitHub. Example:
-
-```bash
-curl -o actions-runner-linux-x64-2.325.0.tar.gz -L https://github.com/actions/runner/releases/download/v2.325.0/actions-runner-linux-x64-2.325.0.tar.gz
-tar xzf ./actions-runner-linux-x64-2.325.0.tar.gz
-```
-
-### 4. Register the Runner
-
-Run the `config.sh` command provided by GitHub:
-
-```bash
-./config.sh --url https://github.com/OWNER/REPO --token YOUR_TOKEN
-```
-
-When prompted for labels, enter:
-
-```text
-webster-prod
-```
-
-Use a repository-level runner for this project instead of an organization-wide runner.
-
-### 5. Install the Runner as a Service
-
-```bash
-sudo ./svc.sh install
-sudo ./svc.sh start
-```
-
-Check status:
-
-```bash
-sudo ./svc.sh status
-```
-
-## VPS Requirements
-
-The self-hosted runner checks out the repository into its own working directory, so a separate `git clone` for deployment is not needed.
-
-The VPS must have:
-
-- Docker
-- Docker Compose plugin
-- permission for the runner user to execute Docker
-- open ports `8080`, `3000`, and `5432`, or custom values through environment variables
-
-If the runner does not run as `root`, add its user to the `docker` group:
-
-```bash
-sudo usermod -aG docker YOUR_USER
-```
-
-After that, re-login or restart the runner service.
-
-## GitHub Secrets
-
-Only these secrets are needed for the current deployment flow:
-
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_CHAT_ID`
-
-SSH deployment secrets are no longer required.
-
-## Manual Deployment on the Server
-
-To test deployment without GitHub Actions:
-
-```bash
-chmod +x deploy.sh
-./deploy.sh
-```
-
-## Security Note
-
-The deploy job runs directly on the VPS through the self-hosted runner. Keep this runner dedicated to this repository and avoid running untrusted workflows on it.
+The repository includes GitHub Actions plus a self-hosted deployment flow.  
+That infrastructure is optional for local development and does not affect the MVP editor flow.

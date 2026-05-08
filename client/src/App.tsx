@@ -1,7 +1,10 @@
-﻿import { ChangeEvent, PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent, useEffect, useRef, useState } from 'react';
+﻿import { ChangeEvent, PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react';
 import { Canvas, Circle, FabricImage, FabricObject, Path, Pattern, Point, Rect, Textbox, Triangle } from 'fabric';
 import { Circle as CircleIcon, Download, GraduationCap, Grid3X3, ImagePlus, MousePointer2, Plus, Shapes, Sparkles, Square, Trash2, Triangle as TriangleIcon, Type, Upload } from 'lucide-react';
+import { getCurrentUser, login as loginRequest, logout as logoutRequest, register as registerRequest, type AuthUser } from './api/auth';
 import JSZip from 'jszip';
+import { createProject as createProjectRequest, deleteProject as deleteProjectRequest, getProject, listProjects, updateProject as updateProjectRequest, type ProjectPayload, type ProjectRecord } from './api/projects';
+import { clearAccessToken, getAccessToken } from './api/http';
 import owlMascot from './public/owl.png';
 
 type FramePreset = {
@@ -37,6 +40,7 @@ type LayerItem = {
   name: string;
   type: string;
   active: boolean;
+  visible: boolean;
 };
 
 type FillMode = 'solid' | 'gradient';
@@ -90,6 +94,11 @@ type ResizeHandle = {
   top: number;
   cursor: string;
 };
+type EditorProject = {
+  frames: DesignFrame[];
+};
+type SidebarPanel = 'templates' | 'uploads' | 'elements' | 'text' | 'photos' | 'styles' | 'learn';
+type AuthMode = 'login' | 'register';
 
 const presets: FramePreset[] = [
   { name: 'Instagram Post', description: 'Social media square', width: 1080, height: 1080 },
@@ -109,6 +118,7 @@ const galleryTemplates: GalleryTemplate[] = [
 const exportProperties = ['objectId', 'objectName', 'cornerRadii', 'shapeKind', 'fillLayers'];
 const maxHistorySteps = 6;
 const snapThreshold = 8;
+const defaultProjectName = 'Untitled project';
 const fontOptions = [
   { label: 'Inter', value: 'Inter, Segoe UI, sans-serif' },
   { label: 'Segoe UI', value: 'Segoe UI, sans-serif' },
@@ -239,9 +249,32 @@ export default function App() {
   const [frameHeightInput, setFrameHeightInput] = useState('');
   const [activeTool, setActiveTool] = useState<ToolMode>('select');
   const [workspaceMode, setWorkspaceMode] = useState<'templates' | 'editor'>('templates');
+  const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>('templates');
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [projectName, setProjectName] = useState(defaultProjectName);
+  const [projectDescription, setProjectDescription] = useState('');
+  const [savedProjects, setSavedProjects] = useState<ProjectRecord[]>([]);
+  const [savedProjectsLoading, setSavedProjectsLoading] = useState(false);
+  const [savedProjectsError, setSavedProjectsError] = useState('');
+  const [projectStatus, setProjectStatus] = useState('');
+  const [projectError, setProjectError] = useState('');
+  const [isSavingProject, setIsSavingProject] = useState(false);
+  const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authMode, setAuthMode] = useState<AuthMode>('login');
+  const [authName, setAuthName] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [authError, setAuthError] = useState('');
+  const [authStatus, setAuthStatus] = useState('');
 
   const activeFrame = frames.find((frame) => frame.id === activeFrameId) ?? frames[0];
   const zoomPercent = Math.round(workspaceZoom * 100);
+  const canManageSavedProjects = Boolean(authUser);
+  const projectRequestBusy = isSavingProject || savedProjectsLoading || openingProjectId !== null || deletingProjectId !== null;
 
   useEffect(() => {
     framesRef.current = frames;
@@ -255,6 +288,10 @@ export default function App() {
   useEffect(() => {
     activeToolRef.current = activeTool;
   }, [activeTool]);
+
+  useEffect(() => {
+    void bootstrapSession();
+  }, []);
 
   useEffect(() => {
     spacePressedRef.current = spacePressed;
@@ -589,12 +626,22 @@ export default function App() {
     });
   };
 
-  const handleWorkspaceWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const multiplier = event.deltaY > 0 ? 0.9 : 1.1;
-    setZoom(workspaceZoom * multiplier, { x: event.clientX, y: event.clientY });
-  };
+  useEffect(() => {
+    const stage = canvasStageRef.current;
+    if (!stage) return;
+
+    const handleWorkspaceWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const multiplier = event.deltaY > 0 ? 0.9 : 1.1;
+      setZoom(workspaceZoom * multiplier, { x: event.clientX, y: event.clientY });
+    };
+
+    stage.addEventListener('wheel', handleWorkspaceWheel, { passive: false });
+    return () => {
+      stage.removeEventListener('wheel', handleWorkspaceWheel);
+    };
+  }, [workspaceZoom, activeFrame.width, activeFrame.height]);
 
   const updateGridCursorTarget = (event: ReactPointerEvent<HTMLDivElement>) => {
     const stage = canvasStageRef.current;
@@ -728,6 +775,242 @@ export default function App() {
     setActiveTool('select');
   };
 
+  const handleSidebarSelect = (panel: SidebarPanel) => {
+    setSidebarPanel(panel);
+    if (workspaceMode === 'templates' && panel !== 'templates') {
+      openEditorWorkspace();
+    }
+  };
+
+  const resetAuthMessages = () => {
+    setAuthError('');
+    setAuthStatus('');
+  };
+
+  const handleUnauthorizedProjectAccess = (message: string) => {
+    if (!/authorization|token|unauthorized|expired/i.test(message)) {
+      return false;
+    }
+
+    clearAccessToken();
+    setAuthUser(null);
+    setSavedProjects([]);
+    setProjectId(null);
+    setSavedProjectsError('');
+    setAuthError('Your session expired. Please log in again.');
+    return true;
+  };
+
+  const bootstrapSession = async () => {
+    if (!getAccessToken()) {
+      setAuthChecking(false);
+      setSavedProjects([]);
+      return;
+    }
+
+    setAuthChecking(true);
+    try {
+      const user = await getCurrentUser();
+      setAuthUser(user);
+      await refreshSavedProjects(true);
+    } catch (error) {
+      clearAccessToken();
+      setAuthUser(null);
+      setSavedProjects([]);
+      setAuthError(getErrorMessage(error, 'Could not restore your session. Please log in again.'));
+    } finally {
+      setAuthChecking(false);
+    }
+  };
+
+  const applyProjectFrames = (nextFrames: DesignFrame[], meta?: { projectId?: string | null; name?: string; description?: string | null }) => {
+    historyRef.current = {};
+    framesRef.current = nextFrames;
+    setFrames(nextFrames);
+    setActiveFrameId(nextFrames[0].id);
+    setSelectedObject(null);
+    setLayers([]);
+    setCornerHandles([]);
+    setResizeHandles([]);
+    setProjectId(meta?.projectId ?? null);
+    setProjectName(meta?.name?.trim() || deriveProjectName(nextFrames));
+    setProjectDescription(meta?.description ?? '');
+    setProjectError('');
+    openEditorWorkspace();
+  };
+
+  const refreshSavedProjects = async (silentIfLoggedOut = false) => {
+    if (!getAccessToken()) {
+      setSavedProjects([]);
+      setSavedProjectsLoading(false);
+      if (!silentIfLoggedOut) {
+        setSavedProjectsError('');
+      }
+      return;
+    }
+
+    if (savedProjectsLoading) return;
+    setSavedProjectsLoading(true);
+    setSavedProjectsError('');
+    try {
+      const projects = await listProjects();
+      setSavedProjects(projects);
+    } catch (error) {
+      const message = getErrorMessage(error, 'Could not load saved projects.');
+      if (!handleUnauthorizedProjectAccess(message)) {
+        setSavedProjectsError(message);
+      }
+    } finally {
+      setSavedProjectsLoading(false);
+    }
+  };
+
+  const submitAuth = async () => {
+    if (authLoading) return;
+    setAuthLoading(true);
+    resetAuthMessages();
+    try {
+      const response = authMode === 'register'
+        ? await registerRequest({ name: authName.trim(), email: authEmail.trim(), password: authPassword })
+        : await loginRequest({ email: authEmail.trim(), password: authPassword });
+      setAuthUser(response.user);
+      setAuthPassword('');
+      if (authMode === 'register') {
+        setAuthName('');
+      }
+      setAuthStatus(authMode === 'register' ? 'Account created. You are now logged in.' : 'Logged in successfully.');
+      await refreshSavedProjects(true);
+    } catch (error) {
+      setAuthError(getErrorMessage(error, authMode === 'register' ? 'Could not register.' : 'Could not log in.'));
+    } finally {
+      setAuthLoading(false);
+      setAuthChecking(false);
+    }
+  };
+
+  const logoutUser = () => {
+    logoutRequest();
+    setAuthUser(null);
+    setSavedProjects([]);
+    setProjectId(null);
+    setSavedProjectsError('');
+    setProjectStatus('');
+    setProjectError('');
+    setAuthStatus('Logged out.');
+    setAuthPassword('');
+  };
+
+  const buildProjectPayload = (): ProjectPayload => {
+    saveCurrentFrame();
+    return {
+      name: projectName.trim(),
+      description: projectDescription.trim() || undefined,
+      data: createEditorProjectSnapshot(framesRef.current) as Record<string, unknown>
+    };
+  };
+
+  const saveProjectToBackend = async (mode: 'save' | 'save-as-new') => {
+    if (!canManageSavedProjects) {
+      setProjectError('Log in to save projects to the backend.');
+      return;
+    }
+    if (projectRequestBusy) return;
+    if (!projectName.trim()) {
+      setProjectError('Project name is required before saving.');
+      setProjectStatus('');
+      return;
+    }
+    setIsSavingProject(true);
+    setProjectError('');
+    setProjectStatus(mode === 'save' && projectId ? 'Saving project changes...' : 'Saving project to backend...');
+    try {
+      const payload = buildProjectPayload();
+      const response = mode === 'save' && projectId
+        ? await updateProjectRequest(projectId, payload)
+        : await createProjectRequest(payload);
+
+      setProjectId(response.id);
+      setProjectName(response.name);
+      setProjectDescription(response.description ?? '');
+      setProjectStatus(mode === 'save' && projectId ? 'Project saved.' : 'New project saved.');
+      await refreshSavedProjects(true);
+    } catch (error) {
+      const message = getErrorMessage(error, 'Could not save the project.');
+      if (!handleUnauthorizedProjectAccess(message)) {
+        setProjectError(message);
+      }
+    } finally {
+      setIsSavingProject(false);
+    }
+  };
+
+  const openSavedProject = async (id: string) => {
+    if (!canManageSavedProjects) {
+      setProjectError('Log in to open saved projects.');
+      return;
+    }
+    if (projectRequestBusy) return;
+    setOpeningProjectId(id);
+    setProjectError('');
+    setProjectStatus('Loading saved project...');
+    try {
+      const project = await getProject(id);
+      const nextFrames = parseEditorProjectData(project.data);
+      if (!nextFrames) {
+        throw new Error('Saved project data is invalid or corrupted.');
+      }
+
+      applyProjectFrames(nextFrames, {
+        projectId: project.id,
+        name: project.name,
+        description: project.description
+      });
+      setProjectStatus(`Loaded "${project.name}".`);
+      await refreshSavedProjects(true);
+    } catch (error) {
+      const message = getErrorMessage(error, 'Could not open the saved project.');
+      if (!handleUnauthorizedProjectAccess(message)) {
+        setProjectError(message);
+      }
+    } finally {
+      setOpeningProjectId(null);
+    }
+  };
+
+  const deleteSavedProject = async (id: string) => {
+    if (!canManageSavedProjects) {
+      setProjectError('Log in to delete saved projects.');
+      return;
+    }
+    if (projectRequestBusy) return;
+    const target = savedProjects.find((project) => project.id === id);
+    const label = target?.name ?? 'this project';
+    if (!window.confirm(`Delete "${label}" from saved projects? This cannot be undone.`)) {
+      return;
+    }
+
+    setDeletingProjectId(id);
+    setProjectError('');
+    setProjectStatus('Deleting saved project...');
+    try {
+      await deleteProjectRequest(id);
+      setSavedProjects((current) => current.filter((project) => project.id !== id));
+      if (projectId === id) {
+        setProjectId(null);
+        setProjectStatus('Saved project deleted. Current canvas remains open as an unsaved draft.');
+      } else {
+        setProjectStatus('Saved project deleted.');
+      }
+    } catch (error) {
+      const message = getErrorMessage(error, 'Could not delete the saved project.');
+      if (!handleUnauthorizedProjectAccess(message)) {
+        setProjectError(message);
+      }
+    } finally {
+      setDeletingProjectId(null);
+    }
+  };
+
   const createProjectFromTemplate = (template: GalleryTemplate) => {
     const nextFrame: DesignFrame = {
       id: createId(),
@@ -743,15 +1026,33 @@ export default function App() {
       json: { objects: [] }
     };
 
-    historyRef.current = {};
-    framesRef.current = [nextFrame];
-    setFrames([nextFrame]);
-    setActiveFrameId(nextFrame.id);
-    openEditorWorkspace();
+    applyProjectFrames([nextFrame], {
+      projectId: null,
+      name: template.title,
+      description: template.subtitle
+    });
   };
 
   const addText = () => {
     addTextAt(120, 120);
+  };
+
+  const addTextPreset = (content: string, name: string, fontSizeValue: number, fontWeight: number, width = 460) => {
+    const settings = styleSettingsRef.current;
+    addObject(
+      new Textbox(content, {
+        left: 120,
+        top: 120,
+        originX: 'left',
+        originY: 'top',
+        width,
+        fontFamily: settings.fontFamily,
+        fontSize: fontSizeValue,
+        fontWeight,
+        fill: colorWithOpacity(settings.fillColor, settings.fillOpacity)
+      }) as WebsterObject,
+      name
+    );
   };
 
   const addTextAt = (left: number, top: number) => {
@@ -770,6 +1071,18 @@ export default function App() {
       }) as WebsterObject,
       'Text'
     );
+  };
+
+  const addHeadingText = () => {
+    addTextPreset('Add your headline', 'Heading', 72, 800, 520);
+  };
+
+  const addSubheadingText = () => {
+    addTextPreset('Add a short supporting message', 'Subheading', 40, 700, 520);
+  };
+
+  const addBodyText = () => {
+    addTextPreset('Add body text with details for your design.', 'Body text', 26, 500, 460);
   };
 
   const createDrawableObject = (tool: ToolMode, left: number, top: number) => {
@@ -1279,11 +1592,52 @@ export default function App() {
   const selectLayer = (index: number) => {
     const canvas = fabricCanvasRef.current;
     const object = canvas?.getObjects()[index] as WebsterObject | undefined;
-    if (!canvas || !object) return;
+    if (!canvas || !object || object.visible === false) return;
     canvas.setActiveObject(object);
     canvas.requestRenderAll();
     setSelectedObject(object);
     setLayers(getLayers(canvas, object));
+  };
+
+  const toggleLayerVisibility = (index: number) => {
+    const canvas = fabricCanvasRef.current;
+    const object = canvas?.getObjects()[index] as WebsterObject | undefined;
+    if (!canvas || !object) return;
+
+    const nextVisible = object.visible === false;
+    object.set({
+      visible: nextVisible,
+      selectable: nextVisible,
+      evented: nextVisible
+    });
+    if (!nextVisible && canvas.getActiveObject() === object) {
+      canvas.discardActiveObject();
+      setSelectedObject(null);
+    }
+    canvas.requestRenderAll();
+    setLayers(getLayers(canvas, nextVisible ? object : null));
+    saveCurrentFrame(true);
+  };
+
+  const moveLayer = (index: number, direction: 'up' | 'down') => {
+    const canvas = fabricCanvasRef.current as (Canvas & {
+      bringObjectForward?: (object: WebsterObject) => boolean;
+      sendObjectBackwards?: (object: WebsterObject) => boolean;
+    }) | null;
+    const object = canvas?.getObjects()[index] as WebsterObject | undefined;
+    if (!canvas || !object) return;
+
+    if (direction === 'up') {
+      canvas.bringObjectForward?.(object);
+    } else {
+      canvas.sendObjectBackwards?.(object);
+    }
+
+    canvas.setActiveObject(object);
+    canvas.requestRenderAll();
+    setSelectedObject(object);
+    setLayers(getLayers(canvas, object));
+    saveCurrentFrame(true);
   };
 
   const exportFrame = () => {
@@ -1313,21 +1667,31 @@ export default function App() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = async () => {
-      if (!(reader.result instanceof ArrayBuffer)) return;
-      const zip = await JSZip.loadAsync(reader.result);
-      const projectFile = zip.file('project.json');
-      if (!projectFile) return;
-      const project = await hydratePortableProject(JSON.parse(await projectFile.async('string')), zip);
-      const nextFrames = (project.frames as DesignFrame[]).map((frame) => ({
-        ...frame,
-        backgroundColor: frame.backgroundColor ?? '#ffffff',
-        backgroundOpacity: frame.backgroundOpacity ?? 1,
-        backgroundMode: frame.backgroundMode ?? 'solid',
-        backgroundStops: frame.backgroundStops?.length ? frame.backgroundStops : createDefaultGradientStops(frame.backgroundColor ?? '#ffffff', '#d9d9d9')
-      }));
-      framesRef.current = nextFrames;
-      setFrames(nextFrames);
-      setActiveFrameId(nextFrames[0]?.id ?? createId());
+      setProjectError('');
+      setProjectStatus('');
+      try {
+        if (!(reader.result instanceof ArrayBuffer)) {
+          throw new Error('Imported file could not be read.');
+        }
+        const zip = await JSZip.loadAsync(reader.result);
+        const projectFile = zip.file('project.json');
+        if (!projectFile) {
+          throw new Error('Project archive is missing project.json.');
+        }
+        const project = await hydratePortableProject(JSON.parse(await projectFile.async('string')), zip);
+        const nextFrames = parseEditorProjectData(project);
+        if (!nextFrames) {
+          throw new Error('Project archive data is invalid or corrupted.');
+        }
+        applyProjectFrames(nextFrames, {
+          projectId: null,
+          name: deriveProjectName(nextFrames),
+          description: ''
+        });
+        setProjectStatus('Project imported from ZIP.');
+      } catch (error) {
+        setProjectError(getErrorMessage(error, 'Could not import the project ZIP.'));
+      }
     };
     reader.readAsArrayBuffer(file);
     event.target.value = '';
@@ -1352,88 +1716,279 @@ export default function App() {
         </div>
 
         <nav className="sidebar-quick-nav" aria-label="Main tools">
-          <button className="quick-nav-item active" type="button"><Grid3X3 size={18} /><span>Templates</span></button>
-          <button className="quick-nav-item" type="button"><Upload size={18} /><span>Uploads</span></button>
-          <button className="quick-nav-item" type="button"><Shapes size={18} /><span>Elements</span></button>
-          <button className="quick-nav-item" type="button"><Type size={18} /><span>Text</span></button>
-          <button className="quick-nav-item" type="button"><ImagePlus size={18} /><span>Photos</span></button>
-          <button className="quick-nav-item" type="button"><Sparkles size={18} /><span>Styles</span></button>
-          <button className="quick-nav-item" type="button"><GraduationCap size={18} /><span>Learn</span></button>
+          <button className={sidebarPanel === 'templates' ? 'quick-nav-item active' : 'quick-nav-item'} onClick={() => handleSidebarSelect('templates')} type="button"><Grid3X3 size={18} /><span>Templates</span></button>
+          <button className={sidebarPanel === 'uploads' ? 'quick-nav-item active' : 'quick-nav-item'} onClick={() => handleSidebarSelect('uploads')} type="button"><Upload size={18} /><span>Uploads</span></button>
+          <button className={sidebarPanel === 'elements' ? 'quick-nav-item active' : 'quick-nav-item'} onClick={() => handleSidebarSelect('elements')} type="button"><Shapes size={18} /><span>Elements</span></button>
+          <button className={sidebarPanel === 'text' ? 'quick-nav-item active' : 'quick-nav-item'} onClick={() => handleSidebarSelect('text')} type="button"><Type size={18} /><span>Text</span></button>
+          <button className={sidebarPanel === 'photos' ? 'quick-nav-item active' : 'quick-nav-item'} onClick={() => handleSidebarSelect('photos')} type="button"><ImagePlus size={18} /><span>Photos</span></button>
+          <button className={sidebarPanel === 'styles' ? 'quick-nav-item active' : 'quick-nav-item'} onClick={() => handleSidebarSelect('styles')} type="button"><Sparkles size={18} /><span>Styles</span></button>
+          <button className={sidebarPanel === 'learn' ? 'quick-nav-item active' : 'quick-nav-item'} onClick={() => handleSidebarSelect('learn')} type="button"><GraduationCap size={18} /><span>Learn</span></button>
         </nav>
 
         {!isTemplatesMode ? (
           <>
-            <section className="tool-section">
-              <div className="section-heading">
-                <h2>Frames</h2>
-                <button onClick={() => addFrame()} title="Add frame" type="button">
-                  <Plus size={16} />
+            {sidebarPanel === 'templates' ? (
+              <section className="tool-section">
+                <div className="section-heading">
+                  <h2>Templates</h2>
+                  <button onClick={() => addFrame()} title="Add frame" type="button">
+                    <Plus size={16} />
+                  </button>
+                </div>
+                <p className="panel-caption">Switch frames, add a new canvas size, or jump back to the full template gallery.</p>
+                <div className="template-list">
+                  {frames.map((frame, index) => (
+                    <button className={`template-card ${getTemplateToneClass(index)}${frame.id === activeFrameId ? ' active' : ''}`} key={frame.id} onClick={() => switchFrame(frame.id)} type="button">
+                      <div className="template-card-copy">
+                        <strong>{frame.name}</strong>
+                        <span>{frame.description}</span>
+                        <small>{frame.width} x {frame.height}</small>
+                      </div>
+                      <div aria-hidden className={`template-thumb ${getTemplatePreviewClass(frame, index)}`}>
+                        <i className="template-thumb-canvas" />
+                        <i className="template-thumb-shape template-thumb-shape-main" />
+                        <i className="template-thumb-shape template-thumb-shape-accent" />
+                        <i className="template-thumb-badge" />
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                <div className="preset-row">
+                  {presets.map((preset) => (
+                    <button key={preset.name} onClick={() => addFrame(preset)} type="button">
+                      {preset.name}
+                    </button>
+                  ))}
+                </div>
+                <button className="wide-action muted-action" disabled={frames.length <= 1} onClick={deleteSelectedFrame} title="Delete current frame" type="button">
+                  Delete frame
                 </button>
-              </div>
-              <div className="template-list">
-                {frames.map((frame, index) => (
-                  <button className={`template-card ${getTemplateToneClass(index)}${frame.id === activeFrameId ? ' active' : ''}`} key={frame.id} onClick={() => switchFrame(frame.id)} type="button">
-                    <div className="template-card-copy">
-                      <strong>{frame.name}</strong>
-                      <span>{frame.description}</span>
-                      <small>{frame.width} x {frame.height}</small>
-                    </div>
-                    <div aria-hidden className={`template-thumb ${getTemplatePreviewClass(frame, index)}`}>
-                      <i className="template-thumb-canvas" />
-                      <i className="template-thumb-shape template-thumb-shape-main" />
-                      <i className="template-thumb-shape template-thumb-shape-accent" />
-                      <i className="template-thumb-badge" />
-                    </div>
-                  </button>
-                ))}
-              </div>
-              <div className="preset-row">
-                {presets.map((preset) => (
-                  <button key={preset.name} onClick={() => addFrame(preset)} type="button">
-                    {preset.name}
-                  </button>
-                ))}
-              </div>
-              <button className="wide-action muted-action" disabled={frames.length <= 1} onClick={deleteSelectedFrame} title="Delete current frame" type="button">
-                Delete frame
-              </button>
-            </section>
+                <button className="wide-action" onClick={() => setWorkspaceMode('templates')} type="button">Open full template gallery</button>
+              </section>
+            ) : null}
 
-            <section className="tool-section">
-              <h2>Objects</h2>
-              <div className="icon-grid">
-                <button onClick={addText} type="button"><Type size={20} /><span>Text</span></button>
-                <button onClick={addRect} type="button"><Square size={20} /><span>Box</span></button>
-                <button onClick={addCircle} type="button"><CircleIcon size={20} /><span>Circle</span></button>
-                <button onClick={addTriangle} type="button"><TriangleIcon size={20} /><span>Shape</span></button>
-              </div>
-              <button className="wide-action" onClick={() => fileInputRef.current?.click()} title="Upload an image into the current frame" type="button">
-                <ImagePlus size={18} /> Add image
-              </button>
-              <input accept="image/*" hidden onChange={handleImageUpload} ref={fileInputRef} type="file" />
-            </section>
+            {sidebarPanel === 'uploads' ? (
+              <section className="tool-section">
+                <h2>Uploads</h2>
+                <p className="panel-caption">Add your own images to the current design.</p>
+                <button className="wide-action" onClick={() => fileInputRef.current?.click()} type="button"><Upload size={18} /> Upload image</button>
+                <input accept="image/*" hidden onChange={handleImageUpload} ref={fileInputRef} type="file" />
+                <div className="panel-note-card">
+                  <strong>Quick tip</strong>
+                  <span>Use PNG or JPG assets. Uploaded images can be resized, moved, hidden, and exported with the project ZIP.</span>
+                </div>
+              </section>
+            ) : null}
+
+            {sidebarPanel === 'elements' ? (
+              <section className="tool-section">
+                <h2>Elements</h2>
+                <p className="panel-caption">Insert basic shapes and reusable visual blocks.</p>
+                <div className="icon-grid">
+                  <button onClick={addRect} type="button"><Square size={20} /><span>Box</span></button>
+                  <button onClick={addCircle} type="button"><CircleIcon size={20} /><span>Circle</span></button>
+                  <button onClick={addTriangle} type="button"><TriangleIcon size={20} /><span>Triangle</span></button>
+                </div>
+              </section>
+            ) : null}
+
+            {sidebarPanel === 'text' ? (
+              <section className="tool-section">
+                <h2>Text</h2>
+                <p className="panel-caption">Drop ready-made text presets into the canvas and refine them on the right panel.</p>
+                <div className="stack-actions">
+                  <button onClick={addHeadingText} type="button">Add heading</button>
+                  <button onClick={addSubheadingText} type="button">Add subheading</button>
+                  <button onClick={addBodyText} type="button">Add body text</button>
+                  <button onClick={addText} type="button">Add custom text</button>
+                </div>
+              </section>
+            ) : null}
+
+            {sidebarPanel === 'photos' ? (
+              <section className="tool-section">
+                <h2>Photos</h2>
+                <p className="panel-caption">Start with your own photo asset and combine it with text or shapes.</p>
+                <button className="wide-action" onClick={() => fileInputRef.current?.click()} type="button"><ImagePlus size={18} /> Add photo</button>
+                <input accept="image/*" hidden onChange={handleImageUpload} ref={fileInputRef} type="file" />
+                <div className="panel-note-card">
+                  <strong>No built-in stock gallery yet</strong>
+                  <span>For this MVP, the Photos panel focuses on importing and editing your own images.</span>
+                </div>
+              </section>
+            ) : null}
+
+            {sidebarPanel === 'styles' ? (
+              <section className="tool-section">
+                <h2>Styles</h2>
+                <p className="panel-caption">Adjust frame background and the selected object's appearance from one quick panel.</p>
+                <label className="field compact-field">
+                  <span>Frame background</span>
+                  <input onChange={(event) => updateFrameBackground(event.target.value)} type="color" value={activeFrame.backgroundColor ?? '#ffffff'} />
+                </label>
+                <label className="field compact-field">
+                  <span>Selected fill</span>
+                  <input disabled={!selectedObject || selectedObject.type === 'image'} onChange={(event) => updateFill(event.target.value)} type="color" value={fillColor} />
+                </label>
+                <label className="field compact-field">
+                  <span>Selected opacity</span>
+                  <input max="1" min="0" onChange={(event) => updateOpacity(Number(event.target.value))} step="0.05" type="range" value={opacity} />
+                </label>
+              </section>
+            ) : null}
+
+            {sidebarPanel === 'learn' ? (
+              <section className="tool-section">
+                <h2>Learn</h2>
+                <div className="help-list">
+                  <span>1. Pick a template or frame size.</span>
+                  <span>2. Use Elements, Text, Uploads, or Photos to build the design.</span>
+                  <span>3. Select objects to edit colors, sizes, and typography on the right side.</span>
+                  <span>4. Save to backend after logging in, or export a ZIP/PNG locally.</span>
+                  <span>5. Use Layers to hide items or change their order.</span>
+                </div>
+              </section>
+            ) : null}
 
             <section className="tool-section">
               <h2>Layers</h2>
               <div className="layer-tree">
                 {layers.map((layer) => (
-                  <button className={layer.active ? 'layer-tree-row active' : 'layer-tree-row'} key={layer.id} onClick={() => selectLayer(layer.index)} type="button">
-                    <strong>{layer.name}</strong>
-                    <span>{layer.type}</span>
-                  </button>
+                  <div className={layer.active ? 'layer-tree-row active' : 'layer-tree-row'} key={layer.id}>
+                    <button className="layer-tree-main" disabled={!layer.visible} onClick={() => selectLayer(layer.index)} type="button">
+                      <strong>{layer.name}</strong>
+                      <span>{layer.visible ? `${layer.type}${layer.active ? ' · selected' : ''}` : `${layer.type} · hidden`}</span>
+                    </button>
+                    <div className="layer-tree-actions">
+                      <button onClick={() => toggleLayerVisibility(layer.index)} type="button">{layer.visible ? 'Hide' : 'Show'}</button>
+                      <button onClick={() => moveLayer(layer.index, 'up')} type="button">Up</button>
+                      <button onClick={() => moveLayer(layer.index, 'down')} type="button">Down</button>
+                    </div>
+                  </div>
                 ))}
               </div>
             </section>
 
             <section className="tool-section">
+              <h2>Account</h2>
+              {authChecking ? (
+                <p className="project-feedback">Checking session...</p>
+              ) : authUser ? (
+                <div className="panel-note-card">
+                  <strong>{authUser.name}</strong>
+                  <span>{authUser.email}</span>
+                  <button className="wide-action muted-action" onClick={logoutUser} type="button">Logout</button>
+                </div>
+              ) : (
+                <>
+                  <div className="segmented-control">
+                    <button className={authMode === 'login' ? 'active' : ''} onClick={() => { setAuthMode('login'); resetAuthMessages(); }} type="button">Login</button>
+                    <button className={authMode === 'register' ? 'active' : ''} onClick={() => { setAuthMode('register'); resetAuthMessages(); }} type="button">Register</button>
+                  </div>
+                  {authMode === 'register' ? (
+                    <label className="field compact-field">
+                      <span>Name</span>
+                      <input onChange={(event) => setAuthName(event.target.value)} placeholder="Your name" type="text" value={authName} />
+                    </label>
+                  ) : null}
+                  <label className="field compact-field">
+                    <span>Email</span>
+                    <input onChange={(event) => setAuthEmail(event.target.value)} placeholder="you@example.com" type="text" value={authEmail} />
+                  </label>
+                  <label className="field compact-field">
+                    <span>Password</span>
+                    <input onChange={(event) => setAuthPassword(event.target.value)} placeholder="At least 8 characters" type="password" value={authPassword} />
+                  </label>
+                  <button className="wide-action" disabled={authLoading} onClick={() => void submitAuth()} type="button">
+                    {authLoading ? 'Please wait...' : authMode === 'login' ? 'Login' : 'Create account'}
+                  </button>
+                </>
+              )}
+              {authStatus ? <p className="project-feedback success">{authStatus}</p> : null}
+              {authError ? <p className="project-feedback error">{authError}</p> : null}
+            </section>
+
+            <section className="tool-section">
               <h2>Project</h2>
+              <p className="project-subtitle">
+                {canManageSavedProjects
+                  ? (projectId ? 'Update the current saved project or store a separate copy.' : 'Save this design to PostgreSQL so it can be reopened later.')
+                  : 'Log in to save projects to your account and reload them later.'}
+              </p>
+              <label className="field compact-field">
+                <span>Project name</span>
+                <input
+                  disabled={!canManageSavedProjects}
+                  maxLength={120}
+                  onChange={(event) => setProjectName(event.target.value)}
+                  placeholder={defaultProjectName}
+                  type="text"
+                  value={projectName}
+                />
+              </label>
+              <label className="field compact-field">
+                <span>Description</span>
+                <textarea
+                  disabled={!canManageSavedProjects}
+                  maxLength={1000}
+                  onChange={(event) => setProjectDescription(event.target.value)}
+                  placeholder="Optional short description"
+                  rows={3}
+                  value={projectDescription}
+                />
+              </label>
               <div className="preset-row">
                 <button onClick={undoFrame} title="Ctrl+Z" type="button">Undo</button>
                 <button onClick={redoFrame} title="Ctrl+Y" type="button">Redo</button>
               </div>
+              <button className="wide-action" disabled={!canManageSavedProjects || projectRequestBusy} onClick={() => void saveProjectToBackend('save')} title="Save current project to backend" type="button">
+                {isSavingProject ? 'Saving...' : projectId ? 'Save changes' : 'Save project'}
+              </button>
+              <button className="wide-action" disabled={!canManageSavedProjects || projectRequestBusy} onClick={() => void saveProjectToBackend('save-as-new')} title="Create a new saved project in backend" type="button">
+                {isSavingProject ? 'Saving...' : 'Save as new'}
+              </button>
+              <button className="wide-action muted-action" disabled={!canManageSavedProjects || projectRequestBusy} onClick={() => void refreshSavedProjects()} title="Refresh saved projects list" type="button">
+                {savedProjectsLoading ? 'Refreshing...' : 'Refresh saved projects'}
+              </button>
               <button className="wide-action" onClick={exportProject} title="Export project as ZIP with JSON and image assets" type="button"><Download size={18} /> Export project</button>
               <button className="wide-action" onClick={() => importInputRef.current?.click()} title="Import Webster project ZIP" type="button"><Upload size={18} /> Import project</button>
               <input accept=".zip,application/zip" hidden onChange={importProject} ref={importInputRef} type="file" />
+              {projectStatus ? <p className="project-feedback success">{projectStatus}</p> : null}
+              {projectError ? <p className="project-feedback error">{projectError}</p> : null}
+              {savedProjectsError ? <p className="project-feedback error">{savedProjectsError}</p> : null}
+              <div className="project-library">
+                <div className="section-heading">
+                  <h2>Saved projects</h2>
+                </div>
+                <div className="saved-projects-list">
+                  {!canManageSavedProjects && !authChecking ? (
+                    <p className="project-feedback">Log in or register to access backend project storage.</p>
+                  ) : null}
+                  {savedProjectsLoading ? (
+                    <p className="project-feedback">Loading saved projects...</p>
+                  ) : canManageSavedProjects && savedProjects.length === 0 ? (
+                    <p className="project-feedback">No saved projects yet. Save the current canvas to create your first backend project.</p>
+                  ) : canManageSavedProjects ? (
+                    savedProjects.map((project) => (
+                      <div className={project.id === projectId ? 'saved-project-row active' : 'saved-project-row'} key={project.id}>
+                        <button className="saved-project-main" disabled={projectRequestBusy} onClick={() => void openSavedProject(project.id)} type="button">
+                          <strong>{project.name}</strong>
+                          <span>{project.description || 'No description'}</span>
+                          <small>{project.id === projectId ? `Currently open · ${formatSavedProjectDate(project.updatedAt)}` : formatSavedProjectDate(project.updatedAt)}</small>
+                        </button>
+                        <div className="saved-project-actions">
+                          <button disabled={projectRequestBusy} onClick={() => void openSavedProject(project.id)} type="button">
+                            {openingProjectId === project.id ? 'Opening...' : 'Open'}
+                          </button>
+                          <button disabled={projectRequestBusy} onClick={() => void deleteSavedProject(project.id)} type="button">
+                            {deletingProjectId === project.id ? 'Deleting...' : 'Delete'}
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  ) : null}
+                </div>
+              </div>
             </section>
           </>
         ) : null}
@@ -1517,7 +2072,6 @@ export default function App() {
             onPointerEnter={handleStagePointerEnter}
             onPointerLeave={handleStagePointerLeave}
             onPointerMove={handleStagePointerMove}
-            onWheel={handleWorkspaceWheel}
             ref={canvasStageRef}
           >
             {showGrid ? (
@@ -1822,7 +2376,8 @@ function getLayers(canvas: Canvas, active: WebsterObject | null): LayerItem[] {
       id: item.objectId,
       name: getObjectName(item),
       type: item.type ?? 'object',
-      active: item === active
+      active: item === active,
+      visible: item.visible !== false
     };
   }).reverse();
 }
@@ -2217,8 +2772,12 @@ function toCanvasJson(canvas: Canvas) {
   return (canvas as Canvas & { toJSON: (properties?: string[]) => Record<string, unknown> }).toJSON(exportProperties);
 }
 
+function createEditorProjectSnapshot(frames: DesignFrame[]): EditorProject {
+  return { frames: structuredClone(frames) as DesignFrame[] };
+}
+
 async function createPortableProject(frames: DesignFrame[], zip: JSZip) {
-  const project = { frames: structuredClone(frames) as DesignFrame[] };
+  const project = createEditorProjectSnapshot(frames);
   for (const frame of project.frames) {
     if (!frame.json) continue;
     const objects = Array.isArray(frame.json.objects) ? frame.json.objects : [];
@@ -2264,6 +2823,92 @@ function mimeFromFilename(filename: string) {
 
 function getObjectName(object: WebsterObject): string {
   return object.objectName ?? object.type ?? 'Object';
+}
+
+function parseEditorProjectData(project: unknown): DesignFrame[] | null {
+  if (!isRecord(project) || !Array.isArray(project.frames) || project.frames.length === 0) {
+    return null;
+  }
+
+  const nextFrames: DesignFrame[] = [];
+  for (const frame of project.frames) {
+    if (!isRecord(frame)) {
+      return null;
+    }
+
+    const width = clampFrameSize(typeof frame.width === 'number' ? frame.width : Number(frame.width));
+    const height = clampFrameSize(typeof frame.height === 'number' ? frame.height : Number(frame.height));
+    const id = typeof frame.id === 'string' && frame.id.trim() ? frame.id : createId();
+    const name = typeof frame.name === 'string' && frame.name.trim() ? frame.name : 'Untitled frame';
+    const description = typeof frame.description === 'string' ? frame.description : '';
+    const backgroundColor = typeof frame.backgroundColor === 'string' ? frame.backgroundColor : '#ffffff';
+    const backgroundOpacity = clampOpacity(typeof frame.backgroundOpacity === 'number' ? frame.backgroundOpacity : Number(frame.backgroundOpacity ?? 1));
+    const backgroundMode = frame.backgroundMode === 'gradient' ? 'gradient' : 'solid';
+    const backgroundStops = normalizeGradientStops(frame.backgroundStops, backgroundColor);
+    const json = isRecord(frame.json) ? frame.json : undefined;
+
+    nextFrames.push({
+      id,
+      name,
+      description,
+      width,
+      height,
+      backgroundColor,
+      backgroundOpacity,
+      backgroundMode,
+      backgroundStops,
+      json
+    });
+  }
+
+  return nextFrames;
+}
+
+function normalizeGradientStops(stops: unknown, backgroundColor: string) {
+  if (!Array.isArray(stops) || stops.length === 0) {
+    return createDefaultGradientStops(backgroundColor, '#d9d9d9');
+  }
+
+  const nextStops = stops
+    .filter(isRecord)
+    .map((stop) => ({
+      id: typeof stop.id === 'string' && stop.id.trim() ? stop.id : createId(),
+      offset: Math.min(1, Math.max(0, typeof stop.offset === 'number' ? stop.offset : Number(stop.offset ?? 0))),
+      color: typeof stop.color === 'string' ? stop.color : backgroundColor,
+      opacity: clampOpacity(typeof stop.opacity === 'number' ? stop.opacity : Number(stop.opacity ?? 1))
+    }))
+    .sort((a, b) => a.offset - b.offset);
+
+  return nextStops.length > 0 ? nextStops : createDefaultGradientStops(backgroundColor, '#d9d9d9');
+}
+
+function deriveProjectName(frames: DesignFrame[]) {
+  return frames[0]?.name?.trim() || defaultProjectName;
+}
+
+function formatSavedProjectDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'Unknown update time';
+  }
+
+  return `Updated ${date.toLocaleString()}`;
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof TypeError) {
+    return 'Network request failed. Check that the backend is running and reachable.';
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  return fallback;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function isCornerEditable(object: WebsterObject) {
@@ -2345,4 +2990,3 @@ function parseColor(color: string) {
 function rgbToHex(r: number, g: number, b: number) {
   return `#${[r, g, b].map((value) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, '0')).join('')}`;
 }
-

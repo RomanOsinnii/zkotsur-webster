@@ -119,10 +119,6 @@ body {
   padding-bottom: 110px;
 }
 
-.sidebar .tool-section:nth-of-type(2) {
-  display: none;
-}
-
 .properties {
   border-width: 0 0 0 1px;
 }
@@ -279,6 +275,45 @@ h2 {
 
 .tool-section {
   min-width: 0;
+}
+
+.panel-caption {
+  margin: 0 0 12px;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.panel-note-card {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  color: var(--text-secondary);
+  background: linear-gradient(180deg, rgba(244, 251, 255, 0.96), rgba(232, 244, 250, 0.92));
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.panel-note-card strong {
+  color: var(--text-primary);
+}
+
+.help-list {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(244, 251, 255, 0.96), rgba(232, 244, 250, 0.92));
+}
+
+.help-list span {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 800;
 }
 
 .section-heading {
@@ -762,14 +797,13 @@ h2 {
 
 .layer-tree-row {
   display: grid;
+  gap: 8px;
   width: 100%;
-  min-height: 42px;
   padding: 8px 10px;
   border: 1px solid var(--border-default);
   border-radius: 8px;
   color: var(--text-primary);
   background: var(--bg-card);
-  text-align: left;
   transition: background 0.15s, border-color 0.15s;
 }
 
@@ -780,6 +814,44 @@ h2 {
 .layer-tree-row.active {
   border-color: var(--accent);
   background: var(--bg-active);
+  box-shadow: 0 0 0 1px rgba(36, 183, 200, 0.18);
+}
+
+.layer-tree-main {
+  display: grid;
+  width: 100%;
+  min-height: 42px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
+.layer-tree-main:disabled {
+  opacity: 0.74;
+}
+
+.layer-tree-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.layer-tree-actions button {
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  background: var(--bg-main);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.layer-tree-actions button:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-card-hover);
 }
 
 .layer-tree-row strong,
@@ -797,6 +869,98 @@ h2 {
   color: var(--text-secondary);
   font-size: 0.76rem;
   font-weight: 700;
+}
+
+.project-library {
+  margin-top: 14px;
+}
+
+.project-subtitle {
+  margin: 0 0 12px;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.saved-projects-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.saved-projects-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.saved-projects-list::-webkit-scrollbar-track {
+  background: var(--bg-main);
+  border-radius: 4px;
+}
+
+.saved-projects-list::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+
+.saved-project-row {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+
+.saved-project-row.active {
+  border-color: var(--accent);
+  background: var(--bg-active);
+}
+
+.saved-project-main {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
+.saved-project-main strong,
+.saved-project-main span,
+.saved-project-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saved-project-main span,
+.saved-project-main small,
+.project-feedback {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.project-feedback {
+  margin: 10px 0 0;
+}
+
+.project-feedback.error {
+  color: var(--danger);
+}
+
+.project-feedback.success {
+  color: #116f43;
+}
+
+.saved-project-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 /* Snap lines */
@@ -1571,7 +1735,7 @@ kbd {
   --grid-focus-opacity: 0;
   --dot-grid-step: 28px;
   min-width: 0;
-  overflow: hidden;
+  overflow: auto;
   overscroll-behavior: contain;
   padding: 52px;
   background:
@@ -1579,6 +1743,7 @@ kbd {
     radial-gradient(800px 420px at 88% 16%, rgba(255, 171, 102, 0.22), transparent 58%),
     linear-gradient(180deg, #dff0f7 0%, #eaf5fa 48%, #dcecf5 100%);
   cursor: default;
+  touch-action: none;
   user-select: none;
 }
 
@@ -1928,7 +2093,10 @@ canvas {
 }
 
 .field input[type="number"],
-.field select {
+.field input[type="text"],
+.field input[type="password"],
+.field select,
+.field textarea {
   width: 100%;
   min-height: 38px;
   padding: 6px 8px;
@@ -1940,10 +2108,19 @@ canvas {
 }
 
 .field input[type="number"]:focus,
-.field select:focus {
+.field input[type="text"]:focus,
+.field input[type="password"]:focus,
+.field select:focus,
+.field textarea:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: var(--focus-ring);
+}
+
+.field textarea {
+  resize: vertical;
+  min-height: 76px;
+  font: inherit;
 }
 
 .field input[type="range"] {
@@ -2118,7 +2295,7 @@ canvas {
   .properties {
     grid-column: 1 / -1;
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     border-width: 1px 0 0;
   }
 
@@ -2148,6 +2325,16 @@ canvas {
   }
 }
 
+@media (max-width: 920px) {
+  .properties {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .canvas-stage {
+    padding: 28px 18px 96px;
+  }
+}
+
 @media (max-width: 760px) {
   .designer-shell {
     display: block;
@@ -2169,7 +2356,8 @@ canvas {
   }
 
   .properties {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .topbar {
@@ -2227,7 +2415,7 @@ canvas {
 
   .canvas-stage {
     min-height: 520px;
-    padding: 18px;
+    padding: 18px 12px 110px;
   }
 
   .templates-gallery {
@@ -2254,6 +2442,7 @@ canvas {
   }
 
   .active-canvas-frame {
+    max-width: 100%;
     transform: scale(0.34);
   }
 }
@@ -2275,5 +2464,3 @@ select:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }
-
-
