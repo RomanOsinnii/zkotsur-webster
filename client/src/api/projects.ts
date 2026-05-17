@@ -1,4 +1,4 @@
-import { buildApiPath, requestJson } from './http';
+import { buildApiPath, getAccessToken, requestJson } from './http';
 
 const projectsBasePath = buildApiPath('/api/projects');
 
@@ -15,6 +15,13 @@ export type ProjectRecord = {
   data: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+};
+
+export type ProjectExportFormat = 'json' | 'png' | 'pdf';
+
+export type ExportedProjectFile = {
+  blob: Blob;
+  fileName: string;
 };
 
 export function listProjects() {
@@ -43,4 +50,41 @@ export function deleteProject(id: string) {
   return requestJson<void>(`${projectsBasePath}/${id}`, {
     method: 'DELETE'
   }, { auth: true });
+}
+
+export async function exportProjectFile(id: string, format: ProjectExportFormat): Promise<ExportedProjectFile> {
+  const headers = new Headers();
+  const token = getAccessToken();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const response = await fetch(`${projectsBasePath}/${id}/export/${format}`, {
+    method: 'GET',
+    headers
+  });
+
+  if (!response.ok) {
+    let message = response.statusText || 'Request failed';
+    try {
+      const payload = await response.json() as { message?: string | string[] };
+      if (Array.isArray(payload.message)) {
+        message = payload.message.join(', ');
+      } else if (typeof payload.message === 'string' && payload.message.trim()) {
+        message = payload.message;
+      }
+    } catch {
+      // keep fallback message
+    }
+    throw new Error(message);
+  }
+
+  const contentDisposition = response.headers.get('Content-Disposition') ?? '';
+  const fileNameMatch = /filename="?([^";]+)"?/i.exec(contentDisposition);
+  const fileName = fileNameMatch?.[1] ?? `webster-project.${format}`;
+
+  return {
+    blob: await response.blob(),
+    fileName
+  };
 }

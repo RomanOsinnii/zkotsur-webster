@@ -10,6 +10,7 @@ interface Params {
   removeSelected: () => void;
   copySelected: () => Promise<void>;
   pasteSelected: () => Promise<void>;
+  nudgeSelected: (deltaX: number, deltaY: number) => void;
   undoFrame: () => void;
   redoFrame: () => void;
 }
@@ -17,7 +18,7 @@ interface Params {
 export function useKeyboard({
   activeFrameId, fileInputRef, isPanningRef,
   setSpacePressed, setActiveTool,
-  removeSelected, copySelected, pasteSelected, undoFrame, redoFrame
+  removeSelected, copySelected, pasteSelected, nudgeSelected, undoFrame, redoFrame
 }: Params) {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -45,7 +46,12 @@ export function useKeyboard({
         if (code === 'KeyB' || code === 'KeyR' || key === 'b' || key === 'r') { event.preventDefault(); setActiveTool('box'); }
         if (code === 'KeyC' || key === 'c') { event.preventDefault(); setActiveTool('circle'); }
         if (code === 'KeyP' || key === 'p') { event.preventDefault(); setActiveTool('shape'); }
+        if (code === 'KeyD' || key === 'd') { event.preventDefault(); setActiveTool('pencil'); }
         if (code === 'KeyI' || key === 'i') { event.preventDefault(); fileInputRef.current?.click(); }
+        if (key === 'arrowup') { event.preventDefault(); nudgeSelected(0, event.shiftKey ? -10 : -1); }
+        if (key === 'arrowdown') { event.preventDefault(); nudgeSelected(0, event.shiftKey ? 10 : 1); }
+        if (key === 'arrowleft') { event.preventDefault(); nudgeSelected(event.shiftKey ? -10 : -1, 0); }
+        if (key === 'arrowright') { event.preventDefault(); nudgeSelected(event.shiftKey ? 10 : 1, 0); }
       }
       if (!event.ctrlKey && !event.metaKey) return;
       if (code === 'KeyC' || key === 'c') { event.preventDefault(); void copySelected(); }

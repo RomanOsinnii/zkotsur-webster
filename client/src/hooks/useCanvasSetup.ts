@@ -1,5 +1,5 @@
 import { Dispatch, MutableRefObject, SetStateAction, useEffect } from 'react';
-import { Canvas } from 'fabric';
+import { Canvas, PencilBrush } from 'fabric';
 import {
   CornerHandle, DesignFrame, FillLayer, FillMode, FrameHistory,
   GradientStopItem, LayerItem, ResizeHandle, SnapLine, ToolMode, WebsterObject
@@ -111,6 +111,22 @@ export function useCanvasSetup({
       }
     };
 
+    const applyDrawingMode = () => {
+      const tool = activeToolRef.current;
+      const isPencilMode = tool === 'pencil' && !spacePressedRef.current;
+      canvas.isDrawingMode = isPencilMode;
+
+      if (isPencilMode) {
+        if (!canvas.freeDrawingBrush) {
+          canvas.freeDrawingBrush = new PencilBrush(canvas);
+        }
+
+        const brush = canvas.freeDrawingBrush as PencilBrush;
+        brush.width = 4;
+        brush.color = '#1f2937';
+      }
+    };
+
     async function loadFrame() {
       if (frame.json) {
         await canvas.loadFromJSON(frame.json);
@@ -140,6 +156,7 @@ export function useCanvasSetup({
       const pointerEvent = event.e as MouseEvent | undefined;
       const tool = activeToolRef.current;
       if (!pointerEvent || tool === 'select' || tool === 'image' || spacePressedRef.current) return;
+      if (tool === 'pencil') return;
       const pointer = getCanvasPointer(canvas, pointerEvent);
       if (!pointer) return;
       if (tool === 'text') {
@@ -186,6 +203,17 @@ export function useCanvasSetup({
       sync();
       saveCurrentFrame(true);
     });
+    canvas.on('path:created', ({ path }) => {
+      const createdPath = path as WebsterObject | undefined;
+      if (!createdPath) {
+        return;
+      }
+
+      createdPath.objectName = 'Pencil stroke';
+      createdPath.objectId = createdPath.objectId ?? `stroke-${Date.now()}`;
+      sync();
+      saveCurrentFrame(true);
+    });
     canvas.on('selection:cleared', () => {
       setSnapLines([]);
       setCornerHandles([]);
@@ -194,7 +222,11 @@ export function useCanvasSetup({
 
     void loadFrame();
 
+    const drawingModeInterval = window.setInterval(applyDrawingMode, 80);
+    applyDrawingMode();
+
     return () => {
+      window.clearInterval(drawingModeInterval);
       fabricCanvasRef.current = null;
       void canvas.dispose();
     };

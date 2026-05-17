@@ -1,10 +1,13 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  app.useBodyParser('json', { limit: '2mb' });
+  app.useBodyParser('urlencoded', { extended: true, limit: '2mb' });
   app.enableCors();
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,

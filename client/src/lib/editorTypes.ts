@@ -11,15 +11,17 @@ export type GalleryTemplate = {
   id: string;
   title: string;
   subtitle: string;
+  category: string;
   width: number;
   height: number;
   size: string;
   toneClass: string;
   illustrationClass: string;
+  templateData?: Record<string, unknown>;
 };
 
 export type FillMode = 'solid' | 'gradient';
-export type ToolMode = 'select' | 'text' | 'box' | 'circle' | 'shape' | 'image';
+export type ToolMode = 'select' | 'text' | 'box' | 'circle' | 'shape' | 'pencil' | 'image';
 
 export type GradientStopItem = {
   id: string;
@@ -99,7 +101,7 @@ export type EditorProject = {
   frames: DesignFrame[];
 };
 
-export type SidebarPanel = 'templates' | 'uploads' | 'elements' | 'text' | 'photos' | 'styles' | 'learn';
+export type SidebarPanel = 'templates' | 'uploads' | 'elements' | 'text' | 'photos' | 'styles' | 'learn' | 'account';
 export type AuthMode = 'login' | 'register';
 
 export const presets: FramePreset[] = [
@@ -109,14 +111,14 @@ export const presets: FramePreset[] = [
 ];
 
 export const galleryTemplates: GalleryTemplate[] = [
-  { id: 'instagram-post', title: 'Instagram Post', subtitle: 'Social network post', width: 1080, height: 1080, size: '1080 x 1080', toneClass: 'gallery-tone-1', illustrationClass: 'ill-instagram' },
-  { id: 'instagram-story', title: 'Instagram Story', subtitle: 'Story mockup', width: 1080, height: 1920, size: '1080 x 1920', toneClass: 'gallery-tone-2', illustrationClass: 'ill-phone' },
-  { id: 'facebook-cover', title: 'Facebook Cover', subtitle: 'Page cover banner', width: 820, height: 312, size: '820 x 312', toneClass: 'gallery-tone-3', illustrationClass: 'ill-cover' },
-  { id: 'youtube-thumb', title: 'YouTube Thumbnail', subtitle: 'Video preview', width: 1280, height: 720, size: '1280 x 720', toneClass: 'gallery-tone-4', illustrationClass: 'ill-youtube' },
-  { id: 'collage', title: 'Photo Collages', subtitle: 'Grid photo collage', width: 1080, height: 1080, size: '1080 x 1080', toneClass: 'gallery-tone-5', illustrationClass: 'ill-collage' },
-  { id: 'greeting', title: 'Greeting Card', subtitle: 'Invite and congratulate', width: 1200, height: 800, size: '1200 x 800', toneClass: 'gallery-tone-6', illustrationClass: 'ill-greeting' },
-  { id: 'invitation', title: 'Invitation', subtitle: 'Event invitation', width: 1080, height: 1350, size: '1080 x 1350', toneClass: 'gallery-tone-7', illustrationClass: 'ill-invitation' },
-  { id: 'postcard', title: 'Postcard', subtitle: 'Ready postcard design', width: 1480, height: 1050, size: '1480 x 1050', toneClass: 'gallery-tone-8', illustrationClass: 'ill-postcard' }
+  { id: 'instagram-post', title: 'Instagram Post', subtitle: 'Social network post', category: 'social', width: 1080, height: 1080, size: '1080 x 1080', toneClass: 'gallery-tone-1', illustrationClass: 'ill-instagram' },
+  { id: 'instagram-story', title: 'Instagram Story', subtitle: 'Story mockup', category: 'social', width: 1080, height: 1920, size: '1080 x 1920', toneClass: 'gallery-tone-2', illustrationClass: 'ill-phone' },
+  { id: 'facebook-cover', title: 'Facebook Cover', subtitle: 'Page cover banner', category: 'social', width: 820, height: 312, size: '820 x 312', toneClass: 'gallery-tone-3', illustrationClass: 'ill-cover' },
+  { id: 'youtube-thumb', title: 'YouTube Thumbnail', subtitle: 'Video preview', category: 'video', width: 1280, height: 720, size: '1280 x 720', toneClass: 'gallery-tone-4', illustrationClass: 'ill-youtube' },
+  { id: 'collage', title: 'Photo Collages', subtitle: 'Grid photo collage', category: 'photo', width: 1080, height: 1080, size: '1080 x 1080', toneClass: 'gallery-tone-5', illustrationClass: 'ill-collage' },
+  { id: 'greeting', title: 'Greeting Card', subtitle: 'Invite and congratulate', category: 'print', width: 1200, height: 800, size: '1200 x 800', toneClass: 'gallery-tone-6', illustrationClass: 'ill-greeting' },
+  { id: 'invitation', title: 'Invitation', subtitle: 'Event invitation', category: 'print', width: 1080, height: 1350, size: '1080 x 1350', toneClass: 'gallery-tone-7', illustrationClass: 'ill-invitation' },
+  { id: 'postcard', title: 'Postcard', subtitle: 'Ready postcard design', category: 'print', width: 1480, height: 1050, size: '1480 x 1050', toneClass: 'gallery-tone-8', illustrationClass: 'ill-postcard' }
 ];
 
 export const exportProperties = ['objectId', 'objectName', 'cornerRadii', 'shapeKind', 'fillLayers'];

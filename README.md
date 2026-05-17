@@ -22,6 +22,7 @@ The current MVP proves a real end-to-end flow:
 - PNG export for the active frame
 - NestJS backend with Swagger docs
 - PostgreSQL project persistence
+- PostgreSQL template persistence
 - JWT authentication with protected project routes
 - Docker setup for client, server, and database
 
@@ -166,9 +167,12 @@ Current important endpoints:
 - `POST /api/projects`
 - `PUT /api/projects/:id`
 - `DELETE /api/projects/:id`
+- `GET /api/projects/:id/export/:format` (auth, formats: `json`, `png`, `pdf`)
 - `GET /api/templates`
 - `GET /api/templates/:id`
-- `POST /api/templates`
+- `POST /api/templates` (auth)
+- `PUT /api/templates/:id` (auth)
+- `DELETE /api/templates/:id` (auth)
 
 Swagger UI:
 
@@ -220,7 +224,7 @@ Add screenshots before submission:
 - Templates are still lightweight starter formats rather than rich prebuilt designs
 - No advanced image editing like crop/filters/masking
 - The editor is still concentrated in one large React component
-- Backend `templates` endpoints are still mock/in-memory
+- Templates are persisted in PostgreSQL (seeded with starter templates on first run)
 - Schema management currently uses TypeORM `synchronize`
 
 ## CI/CD

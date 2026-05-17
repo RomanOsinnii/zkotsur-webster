@@ -2,13 +2,16 @@ import { Dispatch, MutableRefObject, SetStateAction, ChangeEvent } from 'react';
 import {
   createProject as createProjectRequest,
   deleteProject as deleteProjectRequest,
+  exportProjectFile,
   getProject,
   listProjects,
   updateProject as updateProjectRequest,
+  type ProjectExportFormat,
   type ProjectPayload,
   type ProjectRecord
 } from '../api/projects';
 import { type AuthUser } from '../api/auth';
+import { createTemplate as createTemplateRequest } from '../api/templates';
 import { clearAccessToken, getAccessToken } from '../api/http';
 import { CornerHandle, DesignFrame, FrameHistory, GalleryTemplate, LayerItem, ResizeHandle, WebsterObject, createId } from '../lib/editorTypes';
 import {
@@ -207,6 +210,14 @@ export function useProjects({
   };
 
   const createProjectFromTemplate = (template: GalleryTemplate) => {
+    if (template.templateData) {
+      const parsedFrames = parseEditorProjectData(template.templateData);
+      if (parsedFrames) {
+        applyProjectFrames(parsedFrames, { projectId: null, name: template.title, description: template.subtitle });
+        return;
+      }
+    }
+
     const nextFrame: DesignFrame = {
       id: createId(),
       name: template.title,
@@ -222,6 +233,53 @@ export function useProjects({
     applyProjectFrames([nextFrame], { projectId: null, name: template.title, description: template.subtitle });
   };
 
+  const createTemplateFromCurrentProject = async (
+    setStatus: (s: string) => void,
+    setError: (s: string) => void
+  ) => {
+    if (!canManageSavedProjects) {
+      setError('Log in to create reusable templates.');
+      return;
+    }
+
+    saveCurrentFrame();
+    const currentFrames = framesRef.current;
+    if (!currentFrames.length) {
+      setError('Could not create template: project has no frames.');
+      return;
+    }
+
+    const templateName = window.prompt('Template name', `${projectName.trim() || 'Custom'} template`);
+    if (templateName === null) {
+      return;
+    }
+
+    const templateCategory = window.prompt('Template category', 'custom');
+    if (templateCategory === null) {
+      return;
+    }
+
+    const baseFrame = currentFrames[0];
+    setError('');
+    setStatus('Saving template...');
+
+    try {
+      await createTemplateRequest({
+        name: templateName.trim() || `${projectName.trim() || 'Custom'} template`,
+        category: templateCategory.trim().toLowerCase() || 'custom',
+        width: baseFrame.width,
+        height: baseFrame.height,
+        data: createEditorProjectSnapshot(currentFrames) as Record<string, unknown>
+      });
+      setStatus('Template saved. It is now available in the template gallery.');
+    } catch (error) {
+      const message = getErrorMessage(error, 'Could not save template.');
+      if (!handleUnauthorizedProjectAccess(message)) {
+        setError(message);
+      }
+    }
+  };
+
   const exportProject = async (setStatus: (s: string) => void, setError: (s: string) => void) => {
     saveCurrentFrame();
     try {
@@ -234,6 +292,39 @@ export function useProjects({
       setStatus('Project exported as .webster binary file.');
     } catch (error) {
       setError(getErrorMessage(error, 'Could not export the .webster binary file.'));
+    }
+  };
+
+  const exportProjectFromBackend = async (
+    format: ProjectExportFormat,
+    setStatus: (s: string) => void,
+    setError: (s: string) => void
+  ) => {
+    if (!canManageSavedProjects) {
+      setError('Log in to export project files from backend.');
+      return;
+    }
+    if (!projectId) {
+      setError('Save the project first to use server-side export.');
+      return;
+    }
+
+    setError('');
+    setStatus(`Exporting ${format.toUpperCase()} from backend...`);
+
+    try {
+      const exported = await exportProjectFile(projectId, format);
+      const link = document.createElement('a');
+      link.download = exported.fileName;
+      link.href = URL.createObjectURL(exported.blob);
+      link.click();
+      URL.revokeObjectURL(link.href);
+      setStatus(`Exported ${format.toUpperCase()} from backend.`);
+    } catch (error) {
+      const message = getErrorMessage(error, `Could not export ${format.toUpperCase()} from backend.`);
+      if (!handleUnauthorizedProjectAccess(message)) {
+        setError(message);
+      }
     }
   };
 
@@ -263,6 +354,7 @@ export function useProjects({
     canManageSavedProjects, projectRequestBusy,
     applyProjectFrames, refreshSavedProjects,
     saveProjectToBackend, openSavedProject, deleteSavedProject,
-    createProjectFromTemplate, exportProject, importProject
+    createProjectFromTemplate, createTemplateFromCurrentProject,
+    exportProject, exportProjectFromBackend, importProject
   };
 }

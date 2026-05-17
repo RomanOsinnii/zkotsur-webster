@@ -177,9 +177,12 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
 
+    expect(screen.getByRole('heading', { name: /welcome back/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /continue as guest/i }));
+
     expect(screen.getByRole('heading', { name: /design editor/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /text/i })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /create design/i }));
+    expect(screen.getByRole('button', { name: /text/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /export png/i })).toBeInTheDocument();
   });
 });

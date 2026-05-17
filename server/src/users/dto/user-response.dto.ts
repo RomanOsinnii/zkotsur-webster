@@ -10,6 +10,12 @@ export class UserResponseDto {
   @ApiProperty({ example: 'student@example.com' })
   email!: string;
 
+  @ApiProperty({ example: 'data:image/png;base64,iVBORw0...', required: false, nullable: true })
+  avatarUrl!: string | null;
+
+  @ApiProperty({ example: '2026-05-08T18:40:00.000Z', required: false, nullable: true })
+  emailVerifiedAt!: Date | null;
+
   @ApiProperty({ example: '2026-05-08T17:42:00.000Z' })
   createdAt!: Date;
 

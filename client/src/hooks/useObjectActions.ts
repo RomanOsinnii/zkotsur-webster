@@ -1,5 +1,5 @@
 import { ChangeEvent, Dispatch, MutableRefObject, RefObject, SetStateAction, useEffect, useRef } from 'react';
-import { Canvas, Circle, FabricImage, Point, Rect, Textbox, Triangle } from 'fabric';
+import { Canvas, Circle, FabricImage, Path, Point, Rect, Textbox, Triangle } from 'fabric';
 import { colorWithOpacity } from '../lib/color';
 import {
   CornerHandle, CornerRadii, FillLayer, FillMode, GradientStopItem,
@@ -184,6 +184,18 @@ export function useObjectActions({
     );
   };
 
+  const addArrow = () => {
+    const arrowPath = new Path('M 20 105 L 300 105 L 300 60 L 420 150 L 300 240 L 300 195 L 20 195 z', {
+      left: 160,
+      top: 180,
+      originX: 'left',
+      originY: 'top',
+      fill: colorWithOpacity(fillColor, fillOpacity)
+    }) as WebsterObject;
+    arrowPath.shapeKind = 'arrow';
+    addObject(arrowPath, 'Arrow');
+  };
+
   const clipboardRef = useRef<WebsterObject | null>(null);
 
   const removeSelected = () => {
@@ -221,6 +233,22 @@ export function useObjectActions({
     canvas.requestRenderAll();
     setSelectedObject(clone);
     setLayers(getLayers(canvas, clone));
+    saveCurrentFrame(true);
+  };
+
+  const nudgeSelected = (deltaX: number, deltaY: number) => {
+    const canvas = fabricCanvasRef.current;
+    const active = canvas?.getActiveObject() as WebsterObject | undefined;
+    if (!canvas || !active) {
+      return;
+    }
+
+    const currentLeft = typeof active.left === 'number' ? active.left : 0;
+    const currentTop = typeof active.top === 'number' ? active.top : 0;
+    active.set({ left: currentLeft + deltaX, top: currentTop + deltaY });
+    (active as WebsterObject & { setCoords?: () => void }).setCoords?.();
+    canvas.requestRenderAll();
+    setLayers(getLayers(canvas, active));
     saveCurrentFrame(true);
   };
 
@@ -265,12 +293,35 @@ export function useObjectActions({
     saveCurrentFrame(true);
   };
 
-  const exportFrame = (activeFrame: { name: string }) => {
+  const exportFrame = async (activeFrame: { name: string }, format: 'png' | 'jpg' | 'pdf' = 'png') => {
     const canvas = fabricCanvasRef.current;
     if (!canvas) return;
+
+    const safeName = activeFrame.name.toLowerCase().replace(/\s+/g, '-');
+
+    if (format === 'pdf') {
+      const { jsPDF } = await import('jspdf');
+      const width = canvas.getWidth();
+      const height = canvas.getHeight();
+      const orientation = width >= height ? 'landscape' : 'portrait';
+      const imageData = canvas.toDataURL({ format: 'png', multiplier: 1 });
+
+      const pdf = new jsPDF({
+        orientation,
+        unit: 'px',
+        format: [width, height]
+      });
+
+      pdf.addImage(imageData, 'PNG', 0, 0, width, height);
+      pdf.save(`${safeName}.pdf`);
+      return;
+    }
+
+    const imageFormat = format === 'jpg' ? 'jpeg' : 'png';
+    const extension = format === 'jpg' ? 'jpg' : 'png';
     const link = document.createElement('a');
-    link.download = `${activeFrame.name.toLowerCase().replace(/\s+/g, '-')}.png`;
-    link.href = canvas.toDataURL({ format: 'png', multiplier: 1 });
+    link.download = `${safeName}.${extension}`;
+    link.href = canvas.toDataURL({ format: imageFormat, multiplier: 1, quality: 1 });
     link.click();
   };
 
@@ -542,8 +593,8 @@ export function useObjectActions({
   return {
     clipboardRef,
     addObject, addText, addTextAt, addHeadingText, addSubheadingText, addBodyText,
-    createDrawableObject, addRect, addCircle, addTriangle,
-    removeSelected, copySelected, pasteSelected,
+    createDrawableObject, addRect, addCircle, addTriangle, addArrow,
+    removeSelected, copySelected, pasteSelected, nudgeSelected,
     selectLayer, toggleLayerVisibility, moveLayer,
     exportFrame, handleImageUpload,
     selectFillLayer, updateActiveFillLayer, updateFill, updateFillOpacity,

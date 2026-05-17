@@ -25,7 +25,13 @@ describe('AuthService', () => {
             findByEmail: jest.fn(),
             findByEmailWithPassword: jest.fn(),
             findById: jest.fn(),
-            create: jest.fn()
+            create: jest.fn(),
+            setEmailVerificationToken: jest.fn(),
+            findByEmailVerificationTokenHash: jest.fn(),
+            markEmailVerified: jest.fn(),
+            findByIdWithPassword: jest.fn(),
+            updatePassword: jest.fn(),
+            updateProfile: jest.fn()
           }
         },
         {
@@ -79,6 +85,7 @@ describe('AuthService', () => {
       id: 'user-1',
       name: 'Tester',
       email: 'tester@example.com',
+      emailVerifiedAt: new Date(),
       passwordHash: '$2a$10$YO2IuRuxg9o8/okMPY7afOw0YttWJJe0qXTBToYtL6vhfVqlhK/SW',
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -93,5 +100,23 @@ describe('AuthService', () => {
     expect(response.accessToken).toBe('token-value');
     expect(response.user.email).toBe('tester@example.com');
     expect(jwtService.signAsync).toHaveBeenCalled();
+  });
+
+  it('rejects login if email is not verified', async () => {
+    usersService.findByEmailWithPassword.mockResolvedValue({
+      id: 'user-1',
+      name: 'Tester',
+      email: 'tester@example.com',
+      emailVerifiedAt: null,
+      passwordHash: '$2a$10$YO2IuRuxg9o8/okMPY7afOw0YttWJJe0qXTBToYtL6vhfVqlhK/SW',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      projects: []
+    } as never);
+
+    await expect(service.login({
+      email: 'tester@example.com',
+      password: 'secret123'
+    })).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });

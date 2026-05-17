@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseEnumPipe, ParseUUIDPipe, Post, Put, Res, StreamableFile, UseGuards } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -8,6 +8,7 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiParam,
+  ApiProduces,
   ApiTags
 } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -18,7 +19,7 @@ import { CreateProjectDto } from './dto/create-project.dto';
 import { ProjectResponseDto } from './dto/project-response.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ProjectEntity } from './project.entity';
-import { ProjectsService } from './projects.service';
+import { ProjectExportFormat, ProjectsService } from './projects.service';
 
 @ApiTags('Projects')
 @ApiBearerAuth()
@@ -75,5 +76,25 @@ export class ProjectsController {
   @ApiNotFoundResponse({ description: 'Project not found' })
   async deleteProject(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthTokenPayload): Promise<void> {
     await this.projectsService.remove(id, user.sub);
+  }
+
+  @Get(':id/export/:format')
+  @ApiOperation({ summary: 'Export project data as JSON, PNG preview, or PDF summary' })
+  @ApiParam({ name: 'id', description: 'Project id in UUID format' })
+  @ApiParam({ name: 'format', enum: ['json', 'png', 'pdf'] })
+  @ApiProduces('application/json', 'image/png', 'application/pdf')
+  @ApiOkResponse({ description: 'Project export file stream' })
+  @ApiBadRequestResponse({ description: 'Invalid UUID or format', type: ApiErrorResponseDto })
+  @ApiNotFoundResponse({ description: 'Project not found' })
+  async exportProject(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('format', new ParseEnumPipe(['json', 'png', 'pdf'])) format: ProjectExportFormat,
+    @CurrentUser() user: AuthTokenPayload,
+    @Res({ passthrough: true }) response: { setHeader: (name: string, value: string) => void }
+  ): Promise<StreamableFile> {
+    const file = await this.projectsService.exportProject(id, user.sub, format);
+    response.setHeader('Content-Type', file.mimeType);
+    response.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    return new StreamableFile(file.buffer);
   }
 }

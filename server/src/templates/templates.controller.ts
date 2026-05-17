@@ -1,95 +1,81 @@
-import { Body, Controller, Get, NotFoundException, Param, Post } from '@nestjs/common';
-import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiParam, ApiProperty, ApiTags } from '@nestjs/swagger';
-
-type TemplateItem = {
-  id: string;
-  name: string;
-  category: string;
-  width: number;
-  height: number;
-};
-
-class TemplateDto {
-  @ApiProperty({ example: 'tpl_32f4a' })
-  id!: string;
-
-  @ApiProperty({ example: 'Instagram Post' })
-  name!: string;
-
-  @ApiProperty({ example: 'social' })
-  category!: string;
-
-  @ApiProperty({ example: 1080 })
-  width!: number;
-
-  @ApiProperty({ example: 1080 })
-  height!: number;
-}
-
-class CreateTemplateDto {
-  @ApiProperty({ example: 'YouTube Thumbnail' })
-  name!: string;
-
-  @ApiProperty({ example: 'video' })
-  category!: string;
-
-  @ApiProperty({ example: 1280 })
-  width!: number;
-
-  @ApiProperty({ example: 720 })
-  height!: number;
-}
-
-function createId() {
-  if (typeof globalThis.crypto?.randomUUID === 'function') {
-    return globalThis.crypto.randomUUID();
-  }
-
-  return `tpl_${Math.random().toString(36).slice(2, 8)}`;
-}
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Put, UseGuards } from '@nestjs/common';
+import {
+  ApiBadRequestResponse,
+  ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiTags,
+  ApiUnauthorizedResponse
+} from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { ApiErrorResponseDto } from '../common/dto/api-error-response.dto';
+import { CreateTemplateDto } from './dto/create-template.dto';
+import { TemplateResponseDto } from './dto/template-response.dto';
+import { UpdateTemplateDto } from './dto/update-template.dto';
+import { TemplateEntity } from './template.entity';
+import { TemplatesService } from './templates.service';
 
 @ApiTags('Templates')
 @Controller('api/templates')
 export class TemplatesController {
-  private readonly templates: TemplateItem[] = [
-    { id: createId(), name: 'Instagram Post', category: 'social', width: 1080, height: 1080 },
-    { id: createId(), name: 'Facebook Cover', category: 'social', width: 820, height: 312 },
-    { id: createId(), name: 'YouTube Thumbnail', category: 'video', width: 1280, height: 720 }
-  ];
+  constructor(private readonly templatesService: TemplatesService) {}
 
   @Get()
   @ApiOperation({ summary: 'Get all templates' })
-  @ApiOkResponse({ type: TemplateDto, isArray: true })
-  getTemplates(): TemplateItem[] {
-    return this.templates;
+  @ApiOkResponse({ type: TemplateResponseDto, isArray: true })
+  getTemplates(): Promise<TemplateEntity[]> {
+    return this.templatesService.findAll();
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get template by id' })
-  @ApiParam({ name: 'id', description: 'Template id' })
-  @ApiOkResponse({ type: TemplateDto })
-  getTemplateById(@Param('id') id: string): TemplateItem {
-    const template = this.templates.find((item) => item.id === id);
-    if (!template) {
-      throw new NotFoundException(`Template with id '${id}' was not found`);
-    }
-
-    return template;
+  @ApiParam({ name: 'id', description: 'Template id in UUID format' })
+  @ApiOkResponse({ type: TemplateResponseDto })
+  @ApiBadRequestResponse({ description: 'Invalid UUID or invalid request', type: ApiErrorResponseDto })
+  @ApiNotFoundResponse({ description: 'Template not found' })
+  getTemplateById(@Param('id', new ParseUUIDPipe()) id: string): Promise<TemplateEntity> {
+    return this.templatesService.findById(id);
   }
 
   @Post()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Create a template' })
-  @ApiCreatedResponse({ type: TemplateDto })
-  createTemplate(@Body() dto: CreateTemplateDto): TemplateItem {
-    const next: TemplateItem = {
-      id: createId(),
-      name: dto.name,
-      category: dto.category,
-      width: dto.width,
-      height: dto.height
-    };
+  @ApiCreatedResponse({ type: TemplateResponseDto })
+  @ApiBadRequestResponse({ description: 'Validation failed', type: ApiErrorResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token', type: ApiErrorResponseDto })
+  createTemplate(@Body() dto: CreateTemplateDto): Promise<TemplateEntity> {
+    return this.templatesService.create(dto);
+  }
 
-    this.templates.unshift(next);
-    return next;
+  @Put(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update a template' })
+  @ApiParam({ name: 'id', description: 'Template id in UUID format' })
+  @ApiOkResponse({ type: TemplateResponseDto })
+  @ApiBadRequestResponse({ description: 'Invalid UUID or validation failed', type: ApiErrorResponseDto })
+  @ApiNotFoundResponse({ description: 'Template not found' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token', type: ApiErrorResponseDto })
+  updateTemplate(@Param('id', new ParseUUIDPipe()) id: string, @Body() dto: UpdateTemplateDto): Promise<TemplateEntity> {
+    return this.templatesService.update(id, dto);
+  }
+
+  @Delete(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete a template' })
+  @ApiParam({ name: 'id', description: 'Template id in UUID format' })
+  @ApiNoContentResponse({ description: 'Template deleted' })
+  @ApiBadRequestResponse({ description: 'Invalid UUID', type: ApiErrorResponseDto })
+  @ApiNotFoundResponse({ description: 'Template not found' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token', type: ApiErrorResponseDto })
+  async deleteTemplate(@Param('id', new ParseUUIDPipe()) id: string): Promise<void> {
+    await this.templatesService.remove(id);
   }
 }
