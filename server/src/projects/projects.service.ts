@@ -72,7 +72,6 @@ export class ProjectsService {
       name: dto.name,
       description: dto.description?.trim() || null,
       data: dto.data,
-      lastOpenedAt: null,
       owner: { id: ownerId } as UserEntity
     });
 
