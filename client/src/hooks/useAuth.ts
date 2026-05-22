@@ -9,7 +9,7 @@ import {
   verifyEmail,
   type AuthUser
 } from '../api/auth';
-import { clearAccessToken, getAccessToken } from '../api/http';
+import { clearAccessToken, clearGuestMode, getAccessToken } from '../api/http';
 import { type ProjectRecord } from '../api/projects';
 import { AuthMode } from '../lib/editorTypes';
 import { validateAuthInput } from '../lib/authValidation';
@@ -58,6 +58,7 @@ export function useAuth({
     setAuthChecking(true);
     try {
       const user = await getCurrentUser();
+      clearGuestMode();
       setAuthUser(user);
       await refreshSavedProjects(true);
     } catch (error) {
@@ -92,6 +93,7 @@ export function useAuth({
       }
 
       const response = await loginRequest({ email: authEmail.trim(), password: authPassword });
+      clearGuestMode();
       setAuthUser(response.user);
       setAuthPassword('');
       setAuthStatus('Logged in successfully.');
@@ -108,6 +110,7 @@ export function useAuth({
 
   const logoutUser = () => {
     logoutRequest();
+    clearGuestMode();
     setAuthUser(null);
     setSavedProjects([]);
     setProjectId(null);

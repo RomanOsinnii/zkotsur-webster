@@ -31,6 +31,9 @@ interface Params {
   drawStartRef: MutableRefObject<{ x: number; y: number }>;
   activeFrameId: string;
   workspaceMode: 'templates' | 'editor';
+  isReadOnly: boolean;
+  canvasReloadNonce: number;
+  isProjectHydrating: boolean;
   addTextAt: (x: number, y: number) => void;
   createDrawableObject: (tool: ToolMode, x: number, y: number) => WebsterObject | null;
   saveCurrentFrame: (recordHistory?: boolean) => void;
@@ -59,7 +62,7 @@ interface Params {
 export function useCanvasSetup({
   canvasElementRef, fabricCanvasRef, framesRef, historyRef,
   activeToolRef, spacePressedRef, drawingObjectRef, drawStartRef,
-  activeFrameId, workspaceMode,
+  activeFrameId, workspaceMode, isReadOnly, canvasReloadNonce, isProjectHydrating,
   addTextAt, createDrawableObject, saveCurrentFrame, persistFrameJson,
   setSelectedObject, setLayers, setCornerHandles, setResizeHandles,
   setActiveTool, setSnapLines,
@@ -77,7 +80,7 @@ export function useCanvasSetup({
       height: frame.height,
       backgroundColor: getFrameBackgroundFill(frame),
       preserveObjectStacking: true,
-      selection: true
+      selection: !isReadOnly
     });
     fabricCanvasRef.current = canvas;
 
@@ -113,7 +116,7 @@ export function useCanvasSetup({
 
     const applyDrawingMode = () => {
       const tool = activeToolRef.current;
-      const isPencilMode = tool === 'pencil' && !spacePressedRef.current;
+      const isPencilMode = !isReadOnly && tool === 'pencil' && !spacePressedRef.current;
       canvas.isDrawingMode = isPencilMode;
 
       if (isPencilMode) {
@@ -129,10 +132,22 @@ export function useCanvasSetup({
 
     async function loadFrame() {
       if (frame.json) {
-        await canvas.loadFromJSON(frame.json);
-        ensureObjectIds(canvas);
-      } else {
+        try {
+          await canvas.loadFromJSON(frame.json);
+          ensureObjectIds(canvas);
+        } catch {
+          canvas.clear();
+        }
+      } else if (!isProjectHydrating) {
         addStarterObjects(canvas, frame);
+      }
+      if (isReadOnly) {
+        canvas.selection = false;
+        canvas.skipTargetFind = true;
+        canvas.forEachObject((object) => {
+          object.selectable = false;
+          object.evented = false;
+        });
       }
       setCanvasBackground(canvas, getFrameBackgroundFill(frame));
       sync();
@@ -155,7 +170,7 @@ export function useCanvasSetup({
     canvas.on('mouse:down', (event) => {
       const pointerEvent = event.e as MouseEvent | undefined;
       const tool = activeToolRef.current;
-      if (!pointerEvent || tool === 'select' || tool === 'image' || spacePressedRef.current) return;
+      if (isReadOnly || !pointerEvent || tool === 'select' || tool === 'image' || spacePressedRef.current) return;
       if (tool === 'pencil') return;
       const pointer = getCanvasPointer(canvas, pointerEvent);
       if (!pointer) return;
@@ -175,7 +190,7 @@ export function useCanvasSetup({
     canvas.on('mouse:move', (event) => {
       const object = drawingObjectRef.current;
       const pointerEvent = event.e as MouseEvent | undefined;
-      if (!object || !pointerEvent) return;
+      if (isReadOnly || !object || !pointerEvent) return;
       const pointer = getCanvasPointer(canvas, pointerEvent);
       if (!pointer) return;
       resizeDrawableObject(object, drawStartRef.current, pointer);
@@ -183,7 +198,7 @@ export function useCanvasSetup({
     });
     canvas.on('mouse:up', () => {
       const object = drawingObjectRef.current;
-      if (!object) return;
+      if (isReadOnly || !object) return;
       drawingObjectRef.current = null;
       canvas.selection = true;
       normalizeDrawableObject(object);
@@ -194,16 +209,19 @@ export function useCanvasSetup({
       saveCurrentFrame(true);
     });
     canvas.on('object:moving', (event) => {
+      if (isReadOnly) return;
       snapMovingObject(canvas, event.target as WebsterObject | undefined, setSnapLines);
       setCornerHandles([]);
       setResizeHandles([]);
     });
     canvas.on('object:modified', () => {
+      if (isReadOnly) return;
       setSnapLines([]);
       sync();
       saveCurrentFrame(true);
     });
     canvas.on('path:created', ({ path }) => {
+      if (isReadOnly) return;
       const createdPath = path as WebsterObject | undefined;
       if (!createdPath) {
         return;
@@ -230,5 +248,5 @@ export function useCanvasSetup({
       fabricCanvasRef.current = null;
       void canvas.dispose();
     };
-  }, [activeFrameId, workspaceMode]);
+  }, [activeFrameId, canvasReloadNonce, isProjectHydrating, isReadOnly, workspaceMode]);
 }

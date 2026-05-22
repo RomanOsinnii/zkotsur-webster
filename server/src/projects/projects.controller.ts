@@ -16,6 +16,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthTokenPayload } from '../auth/auth.types';
 import { ApiErrorResponseDto } from '../common/dto/api-error-response.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
+import { ProjectShareResponseDto } from './dto/project-share-response.dto';
 import { ProjectResponseDto } from './dto/project-response.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ProjectEntity } from './project.entity';
@@ -29,10 +30,17 @@ export class ProjectsController {
   constructor(private readonly projectsService: ProjectsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Get all persisted projects ordered by last update' })
+  @ApiOperation({ summary: 'Get all persisted projects ordered by most recent open or update' })
   @ApiOkResponse({ type: ProjectResponseDto, isArray: true })
   getProjects(@CurrentUser() user: AuthTokenPayload): Promise<ProjectEntity[]> {
     return this.projectsService.findAll(user.sub);
+  }
+
+  @Get('recent')
+  @ApiOperation({ summary: 'Get recently opened or edited projects for the current user' })
+  @ApiOkResponse({ type: ProjectResponseDto, isArray: true })
+  getRecentProjects(@CurrentUser() user: AuthTokenPayload): Promise<ProjectEntity[]> {
+    return this.projectsService.findRecent(user.sub);
   }
 
   @Get(':id')
@@ -42,7 +50,7 @@ export class ProjectsController {
   @ApiBadRequestResponse({ description: 'Invalid UUID or invalid request', type: ApiErrorResponseDto })
   @ApiNotFoundResponse({ description: 'Project not found' })
   getProjectById(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthTokenPayload): Promise<ProjectEntity> {
-    return this.projectsService.findOne(id, user.sub);
+    return this.projectsService.openProject(id, user.sub);
   }
 
   @Post()
@@ -76,6 +84,27 @@ export class ProjectsController {
   @ApiNotFoundResponse({ description: 'Project not found' })
   async deleteProject(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthTokenPayload): Promise<void> {
     await this.projectsService.remove(id, user.sub);
+  }
+
+  @Post(':id/share')
+  @ApiOperation({ summary: 'Enable public sharing for a project owned by the current user' })
+  @ApiParam({ name: 'id', description: 'Project id in UUID format' })
+  @ApiOkResponse({ type: ProjectShareResponseDto })
+  @ApiBadRequestResponse({ description: 'Invalid UUID', type: ApiErrorResponseDto })
+  @ApiNotFoundResponse({ description: 'Project not found' })
+  enableShare(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthTokenPayload): Promise<ProjectShareResponseDto> {
+    return this.projectsService.enableShare(id, user.sub);
+  }
+
+  @Delete(':id/share')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Disable public sharing for a project owned by the current user' })
+  @ApiParam({ name: 'id', description: 'Project id in UUID format' })
+  @ApiNoContentResponse({ description: 'Project sharing disabled' })
+  @ApiBadRequestResponse({ description: 'Invalid UUID', type: ApiErrorResponseDto })
+  @ApiNotFoundResponse({ description: 'Project not found' })
+  async disableShare(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthTokenPayload): Promise<void> {
+    await this.projectsService.disableShare(id, user.sub);
   }
 
   @Get(':id/export/:format')

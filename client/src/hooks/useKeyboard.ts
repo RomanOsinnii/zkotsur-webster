@@ -5,6 +5,7 @@ interface Params {
   activeFrameId: string;
   fileInputRef: RefObject<HTMLInputElement | null>;
   isPanningRef: MutableRefObject<boolean>;
+  isReadOnly: boolean;
   setSpacePressed: (pressed: boolean) => void;
   setActiveTool: (tool: ToolMode) => void;
   removeSelected: () => void;
@@ -17,6 +18,7 @@ interface Params {
 
 export function useKeyboard({
   activeFrameId, fileInputRef, isPanningRef,
+  isReadOnly,
   setSpacePressed, setActiveTool,
   removeSelected, copySelected, pasteSelected, nudgeSelected, undoFrame, redoFrame
 }: Params) {
@@ -36,6 +38,7 @@ export function useKeyboard({
         setSpacePressed(true);
         return;
       }
+      if (isReadOnly) return;
       if (key === 'backspace' || key === 'delete') {
         event.preventDefault();
         removeSelected();
@@ -76,5 +79,5 @@ export function useKeyboard({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [activeFrameId]);
+  }, [activeFrameId, isReadOnly]);
 }

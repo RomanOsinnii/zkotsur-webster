@@ -13,7 +13,26 @@ export type ProjectRecord = {
   name: string;
   description: string | null;
   data: Record<string, unknown>;
+  isPublic: boolean;
+  shareSlug: string | null;
+  lastOpenedAt: string | null;
   createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectShareRecord = {
+  isPublic: boolean;
+  shareSlug: string | null;
+  sharePath: string | null;
+};
+
+export type PublicProjectRecord = {
+  id: string;
+  name: string;
+  description: string | null;
+  data: Record<string, unknown>;
+  shareSlug: string;
+  readOnly: true;
   updatedAt: string;
 };
 
@@ -30,6 +49,10 @@ export function listProjects() {
 
 export function getProject(id: string) {
   return requestJson<ProjectRecord>(`${projectsBasePath}/${id}`, undefined, { auth: true });
+}
+
+export function listRecentProjects() {
+  return requestJson<ProjectRecord[]>(`${projectsBasePath}/recent`, undefined, { auth: true });
 }
 
 export function createProject(payload: ProjectPayload) {
@@ -50,6 +73,22 @@ export function deleteProject(id: string) {
   return requestJson<void>(`${projectsBasePath}/${id}`, {
     method: 'DELETE'
   }, { auth: true });
+}
+
+export function enableProjectShare(id: string) {
+  return requestJson<ProjectShareRecord>(`${projectsBasePath}/${id}/share`, {
+    method: 'POST'
+  }, { auth: true });
+}
+
+export function disableProjectShare(id: string) {
+  return requestJson<void>(`${projectsBasePath}/${id}/share`, {
+    method: 'DELETE'
+  }, { auth: true });
+}
+
+export function getSharedProject(slug: string) {
+  return requestJson<PublicProjectRecord>(`${projectsBasePath}/shared/${slug}`);
 }
 
 export async function exportProjectFile(id: string, format: ProjectExportFormat): Promise<ExportedProjectFile> {

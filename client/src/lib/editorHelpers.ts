@@ -453,11 +453,16 @@ export function closestSnap(sourcePoints: number[], targetPoints: number[]) {
 
 export function toCanvasJson(canvas: Canvas) {
   ensureObjectIds(canvas);
-  return (canvas as Canvas & { toJSON: (properties?: string[]) => Record<string, unknown> }).toJSON(exportProperties);
+  const rawJson = (canvas as Canvas & { toJSON: (properties?: string[]) => Record<string, unknown> }).toJSON(exportProperties);
+  return normalizeCanvasJson(rawJson);
 }
 
 export function createEditorProjectSnapshot(frames: DesignFrame[]): EditorProject {
-  return { frames: structuredClone(frames) as DesignFrame[] };
+  const nextFrames = structuredClone(frames) as DesignFrame[];
+  for (const frame of nextFrames) {
+    frame.json = normalizeFrameJson(frame.json);
+  }
+  return { frames: nextFrames };
 }
 
 export function getObjectName(object: WebsterObject): string {
@@ -484,7 +489,7 @@ export function parseEditorProjectData(project: unknown): DesignFrame[] | null {
     const backgroundOpacity = clampOpacity(typeof frame.backgroundOpacity === 'number' ? frame.backgroundOpacity : Number(frame.backgroundOpacity ?? 1));
     const backgroundMode = frame.backgroundMode === 'gradient' ? 'gradient' : 'solid';
     const backgroundStops = normalizeGradientStops(frame.backgroundStops, backgroundColor);
-    const json = isRecord(frame.json) ? frame.json : undefined;
+    const json = normalizeFrameJson(frame.json);
 
     nextFrames.push({
       id,
@@ -501,6 +506,67 @@ export function parseEditorProjectData(project: unknown): DesignFrame[] | null {
   }
 
   return nextFrames;
+}
+
+export function normalizeFrameJson(json: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(json)) {
+    return undefined;
+  }
+
+  return normalizeCanvasJson(json);
+}
+
+function normalizeCanvasJson(json: Record<string, unknown>): Record<string, unknown> {
+  const nextJson = structuredClone(json) as Record<string, unknown>;
+  if (!Array.isArray(nextJson.objects)) {
+    nextJson.objects = [];
+    return nextJson;
+  }
+
+  nextJson.objects = nextJson.objects
+    .filter(isRecord)
+    .map((entry) => normalizeCanvasObject(entry));
+
+  return nextJson;
+}
+
+function normalizeCanvasObject(entry: Record<string, unknown>): Record<string, unknown> {
+  const nextEntry = structuredClone(entry) as Record<string, unknown>;
+
+  if (Array.isArray(nextEntry.objects)) {
+    nextEntry.objects = nextEntry.objects
+      .filter(isRecord)
+      .map((child) => normalizeCanvasObject(child));
+  }
+
+  if (isRecord(nextEntry.fill)) {
+    nextEntry.fill = getSerializableFillValue(nextEntry);
+  }
+
+  return nextEntry;
+}
+
+function getSerializableFillValue(entry: Record<string, unknown>): string {
+  const fillLayers = Array.isArray(entry.fillLayers) ? entry.fillLayers.filter(isRecord) : [];
+  const firstLayer = fillLayers[0];
+
+  if (firstLayer) {
+    const layerColor = typeof firstLayer.color === 'string' ? firstLayer.color : '#1f2937';
+    const layerOpacity = clampOpacity(typeof firstLayer.opacity === 'number' ? firstLayer.opacity : Number(firstLayer.opacity ?? 1));
+
+    if (firstLayer.mode === 'gradient' && Array.isArray(firstLayer.stops)) {
+      const firstStop = firstLayer.stops.find(isRecord);
+      if (firstStop) {
+        const stopColor = typeof firstStop.color === 'string' ? firstStop.color : layerColor;
+        const stopOpacity = clampOpacity(typeof firstStop.opacity === 'number' ? firstStop.opacity : Number(firstStop.opacity ?? layerOpacity));
+        return colorWithOpacity(stopColor, stopOpacity);
+      }
+    }
+
+    return colorWithOpacity(layerColor, layerOpacity);
+  }
+
+  return '#1f2937';
 }
 
 export function normalizeGradientStops(stops: unknown, backgroundColor: string) {
@@ -532,6 +598,36 @@ export function formatSavedProjectDate(value: string) {
   }
 
   return `Updated ${date.toLocaleString()}`;
+}
+
+export function formatRelativeProjectTime(value: string, verb = 'Edited') {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return `${verb} recently`;
+  }
+
+  const diffMs = Date.now() - date.getTime();
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  if (diffMs < minute) {
+    return `${verb} just now`;
+  }
+  if (diffMs < hour) {
+    const minutes = Math.max(1, Math.floor(diffMs / minute));
+    return `${verb} ${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  }
+  if (diffMs < day) {
+    const hours = Math.max(1, Math.floor(diffMs / hour));
+    return `${verb} ${hours} hour${hours === 1 ? '' : 's'} ago`;
+  }
+  if (diffMs < day * 2) {
+    return `${verb} yesterday`;
+  }
+
+  const days = Math.max(2, Math.floor(diffMs / day));
+  return `${verb} ${days} days ago`;
 }
 
 export function getErrorMessage(error: unknown, fallback: string) {
@@ -595,5 +691,3 @@ export function createRoundedRectPath(width: number, height: number, radii: Corn
   const bl = Math.min(radii.bottomLeft, maxRadius);
   return [`M ${tl} 0`, `L ${width - tr} 0`, `Q ${width} 0 ${width} ${tr}`, `L ${width} ${height - br}`, `Q ${width} ${height} ${width - br} ${height}`, `L ${bl} ${height}`, `Q 0 ${height} 0 ${height - bl}`, `L 0 ${tl}`, `Q 0 0 ${tl} 0`, 'Z'].join(' ');
 }
-
-

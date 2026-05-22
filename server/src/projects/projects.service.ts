@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomBytes } from 'crypto';
 import { Repository } from 'typeorm';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
@@ -14,6 +15,17 @@ export type ProjectExportFile = {
   buffer: Buffer;
 };
 
+export type ProjectShareState = {
+  isPublic: boolean;
+  shareSlug: string | null;
+  sharePath: string | null;
+};
+
+export type PublicProjectView = Pick<ProjectEntity, 'id' | 'name' | 'description' | 'data' | 'updatedAt'> & {
+  shareSlug: string;
+  readOnly: true;
+};
+
 @Injectable()
 export class ProjectsService {
   constructor(
@@ -22,10 +34,22 @@ export class ProjectsService {
   ) {}
 
   findAll(ownerId: string): Promise<ProjectEntity[]> {
-    return this.projectsRepository.find({
-      where: { owner: { id: ownerId } },
-      order: { updatedAt: 'DESC' }
-    });
+    return this.projectsRepository
+      .createQueryBuilder('project')
+      .where('project.ownerId = :ownerId', { ownerId })
+      .orderBy('COALESCE(project.lastOpenedAt, project.updatedAt)', 'DESC')
+      .addOrderBy('project.updatedAt', 'DESC')
+      .getMany();
+  }
+
+  findRecent(ownerId: string, limit = 6): Promise<ProjectEntity[]> {
+    return this.projectsRepository
+      .createQueryBuilder('project')
+      .where('project.ownerId = :ownerId', { ownerId })
+      .orderBy('COALESCE(project.lastOpenedAt, project.updatedAt)', 'DESC')
+      .addOrderBy('project.updatedAt', 'DESC')
+      .limit(limit)
+      .getMany();
   }
 
   async findOne(id: string, ownerId: string): Promise<ProjectEntity> {
@@ -37,11 +61,18 @@ export class ProjectsService {
     return project;
   }
 
+  async openProject(id: string, ownerId: string): Promise<ProjectEntity> {
+    const project = await this.findOne(id, ownerId);
+    project.lastOpenedAt = new Date();
+    return this.projectsRepository.save(project);
+  }
+
   async create(dto: CreateProjectDto, ownerId: string): Promise<ProjectEntity> {
     const project = this.projectsRepository.create({
       name: dto.name,
       description: dto.description?.trim() || null,
       data: dto.data,
+      lastOpenedAt: null,
       owner: { id: ownerId } as UserEntity
     });
 
@@ -67,6 +98,48 @@ export class ProjectsService {
   async remove(id: string, ownerId: string): Promise<void> {
     const project = await this.findOne(id, ownerId);
     await this.projectsRepository.remove(project);
+  }
+
+  async enableShare(id: string, ownerId: string): Promise<ProjectShareState> {
+    const project = await this.findOne(id, ownerId);
+
+    project.isPublic = true;
+    project.shareSlug = project.shareSlug ?? await this.generateUniqueShareSlug();
+
+    const saved = await this.projectsRepository.save(project);
+
+    return {
+      isPublic: saved.isPublic,
+      shareSlug: saved.shareSlug,
+      sharePath: saved.shareSlug ? `/shared/${saved.shareSlug}` : null
+    };
+  }
+
+  async disableShare(id: string, ownerId: string): Promise<void> {
+    const project = await this.findOne(id, ownerId);
+    project.isPublic = false;
+    project.shareSlug = null;
+    await this.projectsRepository.save(project);
+  }
+
+  async findSharedProject(slug: string): Promise<PublicProjectView> {
+    const project = await this.projectsRepository.findOne({
+      where: { shareSlug: slug, isPublic: true }
+    });
+
+    if (!project) {
+      throw new NotFoundException('Shared project link is missing or no longer available.');
+    }
+
+    return {
+      id: project.id,
+      name: project.name,
+      description: project.description,
+      data: project.data,
+      shareSlug: project.shareSlug!,
+      readOnly: true,
+      updatedAt: project.updatedAt
+    };
   }
 
   async exportProject(id: string, ownerId: string, format: ProjectExportFormat): Promise<ProjectExportFile> {
@@ -95,6 +168,18 @@ export class ProjectsService {
       mimeType: 'image/png',
       buffer: createProjectPreviewPng(frames)
     };
+  }
+
+  private async generateUniqueShareSlug(): Promise<string> {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const slug = randomBytes(8).toString('hex');
+      const existing = await this.projectsRepository.findOne({ where: { shareSlug: slug } });
+      if (!existing) {
+        return slug;
+      }
+    }
+
+    throw new Error('Could not generate a unique share link slug.');
   }
 }
 

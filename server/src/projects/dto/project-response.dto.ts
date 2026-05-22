@@ -26,6 +26,15 @@ export class ProjectResponseDto {
   })
   data!: Record<string, unknown>;
 
+  @ApiProperty({ example: false })
+  isPublic!: boolean;
+
+  @ApiProperty({ example: 'c0ffee12beef34aa', required: false, nullable: true })
+  shareSlug!: string | null;
+
+  @ApiProperty({ example: '2026-05-22T10:15:00.000Z', required: false, nullable: true })
+  lastOpenedAt!: Date | null;
+
   @ApiProperty({ example: '2026-05-08T17:42:00.000Z' })
   createdAt!: Date;
 

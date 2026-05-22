@@ -2,17 +2,21 @@ import { Dispatch, MutableRefObject, SetStateAction, ChangeEvent } from 'react';
 import {
   createProject as createProjectRequest,
   deleteProject as deleteProjectRequest,
+  disableProjectShare as disableProjectShareRequest,
+  enableProjectShare as enableProjectShareRequest,
   exportProjectFile,
   getProject,
+  getSharedProject as getSharedProjectRequest,
   listProjects,
   updateProject as updateProjectRequest,
   type ProjectExportFormat,
   type ProjectPayload,
+  type ProjectShareRecord,
   type ProjectRecord
 } from '../api/projects';
 import { type AuthUser } from '../api/auth';
 import { createTemplate as createTemplateRequest } from '../api/templates';
-import { clearAccessToken, getAccessToken } from '../api/http';
+import { clearAccessToken, getAccessToken, getHttpErrorStatus } from '../api/http';
 import { CornerHandle, DesignFrame, FrameHistory, GalleryTemplate, LayerItem, ResizeHandle, WebsterObject, createId } from '../lib/editorTypes';
 import {
   createDefaultGradientStops,
@@ -56,6 +60,8 @@ interface Params {
   setAuthError: (error: string) => void;
   saveCurrentFrame: (recordHistory?: boolean) => void;
   openEditorWorkspace: () => void;
+  onProjectPersisted?: (project: Pick<ProjectRecord, 'id' | 'name' | 'description' | 'data'>) => void;
+  onProjectFramesApplied?: () => void;
 }
 
 export function useProjects({
@@ -67,7 +73,7 @@ export function useProjects({
   setIsSavingProject, setOpeningProjectId, setDeletingProjectId,
   setSavedProjects, setSavedProjectsLoading, setSavedProjectsError,
   setAuthUser, setAuthError,
-  saveCurrentFrame, openEditorWorkspace
+  saveCurrentFrame, openEditorWorkspace, onProjectPersisted, onProjectFramesApplied
 }: Params) {
   const canManageSavedProjects = Boolean(authUser);
   const projectRequestBusy =
@@ -101,6 +107,7 @@ export function useProjects({
     setProjectDescription(meta?.description ?? '');
     setProjectError('');
     openEditorWorkspace();
+    onProjectFramesApplied?.();
   };
 
   const refreshSavedProjects = async (silentIfLoggedOut = false) => {
@@ -126,20 +133,31 @@ export function useProjects({
 
   const buildProjectPayload = (): ProjectPayload => {
     saveCurrentFrame();
+    const snapshot = createEditorProjectSnapshot(framesRef.current);
+    if (!parseEditorProjectData(snapshot)) {
+      throw new Error('Project data is invalid and could not be serialized.');
+    }
     return {
       name: projectName.trim(),
       description: projectDescription.trim() || undefined,
-      data: createEditorProjectSnapshot(framesRef.current) as Record<string, unknown>
+      data: snapshot as Record<string, unknown>
     };
   };
 
-  const saveProjectToBackend = async (mode: 'save' | 'save-as-new') => {
-    if (!canManageSavedProjects) { setProjectError('Log in to save projects to the backend.'); return; }
-    if (projectRequestBusy) return;
+  const syncLocalProjectMeta = (project: Pick<ProjectRecord, 'id' | 'name' | 'description' | 'data'>) => {
+    setProjectId(project.id);
+    setProjectName(project.name);
+    setProjectDescription(project.description ?? '');
+    onProjectPersisted?.(project);
+  };
+
+  const saveProjectToBackend = async (mode: 'save' | 'save-as-new'): Promise<string | null> => {
+    if (!canManageSavedProjects) { setProjectError('Log in to save projects to the backend.'); return null; }
+    if (projectRequestBusy) return null;
     if (!projectName.trim()) {
       setProjectError('Project name is required before saving.');
       setProjectStatus('');
-      return;
+      return null;
     }
     setIsSavingProject(true);
     setProjectError('');
@@ -149,22 +167,41 @@ export function useProjects({
       const response = mode === 'save' && projectId
         ? await updateProjectRequest(projectId, payload)
         : await createProjectRequest(payload);
-      setProjectId(response.id);
-      setProjectName(response.name);
-      setProjectDescription(response.description ?? '');
+      syncLocalProjectMeta(response);
       setProjectStatus(mode === 'save' && projectId ? 'Project saved.' : 'New project saved.');
       await refreshSavedProjects(true);
+      return response.id;
     } catch (error) {
       const message = getErrorMessage(error, 'Could not save the project.');
       if (!handleUnauthorizedProjectAccess(message)) setProjectError(message);
+      return null;
     } finally {
       setIsSavingProject(false);
     }
   };
 
-  const openSavedProject = async (id: string) => {
-    if (!canManageSavedProjects) { setProjectError('Log in to open saved projects.'); return; }
-    if (projectRequestBusy) return;
+  const autosaveProject = async (): Promise<boolean> => {
+    if (!canManageSavedProjects || !projectId || isSavingProject || openingProjectId || deletingProjectId) {
+      return false;
+    }
+
+    try {
+      const response = await updateProjectRequest(projectId, buildProjectPayload());
+      syncLocalProjectMeta(response);
+      setSavedProjects((current) => current.map((item) => (item.id === response.id ? response : item)));
+      return true;
+    } catch (error) {
+      const message = getErrorMessage(error, 'Could not autosave the project.');
+      if (!handleUnauthorizedProjectAccess(message)) {
+        setProjectError(message);
+      }
+      return false;
+    }
+  };
+
+  const openSavedProject = async (id: string): Promise<boolean> => {
+    if (!canManageSavedProjects) { setProjectError('Log in to open saved projects.'); return false; }
+    if (projectRequestBusy) return false;
     setOpeningProjectId(id);
     setProjectError('');
     setProjectStatus('Loading saved project...');
@@ -173,22 +210,49 @@ export function useProjects({
       const nextFrames = parseEditorProjectData(project.data);
       if (!nextFrames) throw new Error('Saved project data is invalid or corrupted.');
       applyProjectFrames(nextFrames, { projectId: project.id, name: project.name, description: project.description });
+      onProjectPersisted?.(project);
       setProjectStatus(`Loaded "${project.name}".`);
       await refreshSavedProjects(true);
+      return true;
     } catch (error) {
       const message = getErrorMessage(error, 'Could not open the saved project.');
       if (!handleUnauthorizedProjectAccess(message)) setProjectError(message);
+      return false;
     } finally {
       setOpeningProjectId(null);
     }
   };
 
-  const deleteSavedProject = async (id: string) => {
-    if (!canManageSavedProjects) { setProjectError('Log in to delete saved projects.'); return; }
-    if (projectRequestBusy) return;
+  const openSharedProject = async (slug: string): Promise<boolean> => {
+    setProjectError('');
+    setProjectStatus('Loading shared project...');
+
+    try {
+      const project = await getSharedProjectRequest(slug);
+      const nextFrames = parseEditorProjectData(project.data);
+      if (!nextFrames) throw new Error('Shared project data is invalid or corrupted.');
+      applyProjectFrames(nextFrames, { projectId: project.id, name: project.name, description: project.description });
+      onProjectPersisted?.(project);
+      setProjectStatus(`Loaded shared project "${project.name}".`);
+      return true;
+    } catch (error) {
+      const status = getHttpErrorStatus(error);
+      setProjectStatus('');
+      setProjectError(
+        status === 403 || status === 404
+          ? 'This shared project is no longer available.'
+          : getErrorMessage(error, 'This shared project is no longer available.')
+      );
+      return false;
+    }
+  };
+
+  const deleteSavedProject = async (id: string): Promise<boolean> => {
+    if (!canManageSavedProjects) { setProjectError('Log in to delete saved projects.'); return false; }
+    if (projectRequestBusy) return false;
     const target = savedProjects.find((p) => p.id === id);
     const label = target?.name ?? 'this project';
-    if (!window.confirm(`Delete "${label}" from saved projects? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete "${label}" from saved projects? This cannot be undone.`)) return false;
     setDeletingProjectId(id);
     setProjectError('');
     setProjectStatus('Deleting saved project...');
@@ -201,9 +265,11 @@ export function useProjects({
       } else {
         setProjectStatus('Saved project deleted.');
       }
+      return true;
     } catch (error) {
       const message = getErrorMessage(error, 'Could not delete the saved project.');
       if (!handleUnauthorizedProjectAccess(message)) setProjectError(message);
+      return false;
     } finally {
       setDeletingProjectId(null);
     }
@@ -328,7 +394,7 @@ export function useProjects({
     }
   };
 
-  const importProject = (event: ChangeEvent<HTMLInputElement>) => {
+  const importProject = (event: ChangeEvent<HTMLInputElement>, onImported?: () => void) => {
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -342,6 +408,7 @@ export function useProjects({
         if (!nextFrames) throw new Error('Project binary data is invalid or corrupted.');
         applyProjectFrames(nextFrames, { projectId: null, name: deriveProjectName(nextFrames), description: '' });
         setProjectStatus('Project imported from .webster binary file.');
+        onImported?.();
       } catch (error) {
         setProjectError(getErrorMessage(error, 'Could not import the .webster binary file.'));
       }
@@ -350,11 +417,54 @@ export function useProjects({
     event.target.value = '';
   };
 
+  const enableProjectShare = async (): Promise<ProjectShareRecord> => {
+    if (!canManageSavedProjects) {
+      throw new Error('Log in to create public share links.');
+    }
+    if (!projectId) {
+      throw new Error('Save the project first to create a public share link.');
+    }
+
+    try {
+      const response = await enableProjectShareRequest(projectId);
+      setSavedProjects((current) => current.map((item) => (
+        item.id === projectId ? { ...item, isPublic: response.isPublic, shareSlug: response.shareSlug } : item
+      )));
+      return response;
+    } catch (error) {
+      const message = getErrorMessage(error, 'Could not create the public share link.');
+      if (handleUnauthorizedProjectAccess(message)) {
+        throw new Error('Your session expired. Please log in again.');
+      }
+      throw new Error(message);
+    }
+  };
+
+  const disableProjectShare = async (): Promise<void> => {
+    if (!canManageSavedProjects || !projectId) {
+      throw new Error('Open a saved project to disable sharing.');
+    }
+
+    try {
+      await disableProjectShareRequest(projectId);
+      setSavedProjects((current) => current.map((item) => (
+        item.id === projectId ? { ...item, isPublic: false, shareSlug: null } : item
+      )));
+    } catch (error) {
+      const message = getErrorMessage(error, 'Could not disable the public share link.');
+      if (handleUnauthorizedProjectAccess(message)) {
+        throw new Error('Your session expired. Please log in again.');
+      }
+      throw new Error(message);
+    }
+  };
+
   return {
     canManageSavedProjects, projectRequestBusy,
     applyProjectFrames, refreshSavedProjects,
-    saveProjectToBackend, openSavedProject, deleteSavedProject,
+    saveProjectToBackend, autosaveProject, openSavedProject, openSharedProject, deleteSavedProject,
     createProjectFromTemplate, createTemplateFromCurrentProject,
-    exportProject, exportProjectFromBackend, importProject
+    exportProject, exportProjectFromBackend, importProject,
+    enableProjectShare, disableProjectShare
   };
 }

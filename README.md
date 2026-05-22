@@ -9,6 +9,8 @@ The current MVP proves a real end-to-end flow:
 - save projects to PostgreSQL through a NestJS API
 - register, log in, and access only your own saved projects
 - reopen saved projects and continue editing
+- autosave saved projects after editing with debounced backend sync
+- create read-only public share links for saved projects
 
 ## Features
 
@@ -24,6 +26,8 @@ The current MVP proves a real end-to-end flow:
 - PostgreSQL project persistence
 - PostgreSQL template persistence
 - JWT authentication with protected project routes
+- Debounced autosave for authenticated saved projects
+- Public read-only share links for persisted projects
 - Docker setup for client, server, and database
 
 ## Tech Stack
@@ -59,6 +63,8 @@ The current MVP proves a real end-to-end flow:
   - `name`
   - `description`
   - `data` as `jsonb`
+  - `isPublic`
+  - `shareSlug`
   - `createdAt`
   - `updatedAt`
   - `ownerId`
@@ -71,6 +77,7 @@ The current MVP proves a real end-to-end flow:
 4. NestJS validates the request DTO and resolves the authenticated user
 5. TypeORM saves the project into PostgreSQL under that user
 6. The saved project can later be loaded back into the editor by the same user
+7. Owners can optionally enable a public read-only share link for a saved project
 
 ## Project Structure
 
@@ -167,6 +174,9 @@ Current important endpoints:
 - `POST /api/projects`
 - `PUT /api/projects/:id`
 - `DELETE /api/projects/:id`
+- `POST /api/projects/:id/share`
+- `DELETE /api/projects/:id/share`
+- `GET /api/projects/shared/:slug`
 - `GET /api/projects/:id/export/:format` (auth, formats: `json`, `png`, `pdf`)
 - `GET /api/templates`
 - `GET /api/templates/:id`
@@ -177,6 +187,22 @@ Current important endpoints:
 Swagger UI:
 
 - `http://localhost:3000/api/docs`
+
+## Development Utilities
+
+Create or refresh the local demo login:
+
+```bash
+cd server
+npm run seed:demo-user
+```
+
+Credentials:
+
+- `email: demo@webster.local`
+- `password: Demo123!`
+
+The script is development-only. It hashes the password with the same bcrypt flow used by normal registration and marks the account as email-verified so it can log in immediately.
 
 ## How to Verify Persistence
 
@@ -195,6 +221,11 @@ Manual MVP flow to test before demo:
 Also test:
 
 - save as new project
+- wait 3 seconds after an edit on an already saved project and confirm autosave status changes from unsaved to saved
+- as a guest, confirm the editor shows that autosave is unavailable
+- generate a public share link for a saved project and open `/shared/:slug` in another browser/session
+- confirm the shared page loads in read-only mode and cannot be saved back
+- disable the share link and confirm the old `/shared/:slug` URL shows a friendly error
 - delete saved project
 - verify another user cannot access someone else's project
 - click each sidebar button and confirm the corresponding panel opens

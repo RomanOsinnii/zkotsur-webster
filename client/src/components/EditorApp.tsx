@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas } from 'fabric';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { changeCurrentUserPassword, updateCurrentUser } from '../api/auth';
+import { enableGuestMode, getAccessToken, isGuestModeEnabled } from '../api/http';
 import { EditorSidebar } from './sidebar/EditorSidebar';
 import { EditorWorkspace } from './workspace/EditorWorkspace';
 import { EditorProperties } from './properties/EditorProperties';
@@ -13,8 +15,8 @@ import {
   presets
 } from '../lib/editorTypes';
 import {
-  createDefaultGradientStops, createGradientPreview,
-  formatSavedProjectDate, getErrorMessage, getFrameStops, isCornerEditable
+  createDefaultGradientStops, createEditorProjectSnapshot, createGradientPreview,
+  formatSavedProjectDate, getErrorMessage, getFrameStops, isCornerEditable, parseEditorProjectData
 } from '../lib/editorHelpers';
 import { useEditorState } from '../hooks/useEditorState';
 import { useHistory } from '../hooks/useHistory';
@@ -29,16 +31,28 @@ import { AuthPage } from './auth/AuthPage';
 import { ProfilePage } from './profile/ProfilePage';
 import owlMascot from '../public/owl.png';
 import { Textbox } from 'fabric';
+import { ThemeMode } from '../lib/theme';
 
-const initialFrames: DesignFrame[] = presets.map((preset, index) => ({
-  ...preset,
-  id: createId(),
-  name: index === 0 ? 'Instagram' : preset.name,
-  backgroundColor: '#ffffff',
-  backgroundOpacity: 1,
-  backgroundMode: 'solid',
-  backgroundStops: createDefaultGradientStops('#ffffff', '#d9d9d9')
-}));
+type Props = {
+  theme: ThemeMode;
+  toggleTheme: () => void;
+};
+
+type SocialPlatform = 'linkedin' | 'facebook' | 'x';
+
+function createInitialFrames(): DesignFrame[] {
+  return presets.map((preset, index) => ({
+    ...preset,
+    id: createId(),
+    name: index === 0 ? 'Instagram' : preset.name,
+    backgroundColor: '#ffffff',
+    backgroundOpacity: 1,
+    backgroundMode: 'solid',
+    backgroundStops: createDefaultGradientStops('#ffffff', '#d9d9d9')
+  }));
+}
+
+const initialFrames: DesignFrame[] = createInitialFrames();
 
 function deepClone<T>(value: T): T {
   if (typeof globalThis.structuredClone === 'function') {
@@ -54,6 +68,18 @@ function cloneFrames(source: DesignFrame[]): DesignFrame[] {
     backgroundStops: frame.backgroundStops.map((stop) => ({ ...stop })),
     json: frame.json ? deepClone(frame.json) : undefined
   }));
+}
+
+function createProjectSignature(
+  frames: DesignFrame[],
+  projectName: string,
+  projectDescription: string
+) {
+  return JSON.stringify({
+    name: projectName.trim(),
+    description: projectDescription.trim(),
+    data: createEditorProjectSnapshot(frames)
+  });
 }
 
 function mapTemplateRecordToGallery(record: TemplateRecord, index: number) {
@@ -75,37 +101,85 @@ function mapTemplateRecordToGallery(record: TemplateRecord, index: number) {
   };
 }
 
-type AuthReturnTarget = 'editor' | 'templates';
+function buildProjectShareUrl(shareSlug: string) {
+  return `${globalThis.location.origin}/shared/${shareSlug}`;
+}
 
-function parseAuthReturnTarget(): AuthReturnTarget | null {
-  const params = new URLSearchParams(globalThis.location?.search ?? '');
-  const rawValue = params.get('returnTo')?.trim().toLowerCase();
+function buildSocialShareUrl(platform: SocialPlatform, projectUrl: string, projectName: string) {
+  const encodedUrl = encodeURIComponent(projectUrl);
+  const encodedText = encodeURIComponent(`Check out "${projectName.trim() || 'this Webster design'}"`);
+
+  if (platform === 'linkedin') {
+    return `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`;
+  }
+
+  if (platform === 'facebook') {
+    return `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`;
+  }
+
+  return `https://twitter.com/intent/tweet?url=${encodedUrl}&text=${encodedText}`;
+}
+
+function openSocialSharePopup(url: string) {
+  const popupWidth = 720;
+  const popupHeight = 640;
+  const left = Math.max(0, Math.round((globalThis.screen.width - popupWidth) / 2));
+  const top = Math.max(0, Math.round((globalThis.screen.height - popupHeight) / 2));
+  const features = `popup=yes,width=${popupWidth},height=${popupHeight},left=${left},top=${top},noopener,noreferrer`;
+
+  return globalThis.open(url, '_blank', features);
+}
+
+function parseAuthReturnPath(search: string): string | null {
+  const params = new URLSearchParams(search);
+  const rawValue = params.get('returnTo')?.trim();
 
   if (!rawValue) {
     return null;
   }
 
-  if (rawValue === 'templates' || rawValue === '/templates') {
-    return 'templates';
+  const normalized =
+    rawValue === 'templates' ? '/templates'
+      : rawValue === 'editor' || rawValue === 'home' ? '/editor'
+        : rawValue === 'projects' ? '/projects'
+          : rawValue === 'profile' ? '/profile'
+            : rawValue;
+
+  if (!normalized.startsWith('/')) {
+    return null;
   }
 
-  if (rawValue === 'editor' || rawValue === '/editor' || rawValue === 'home') {
-    return 'editor';
-  }
-
-  return null;
+  return /^\/(login|editor(?:\/[^/?#]+)?|templates|projects|profile)(?:[?#].*)?$/.test(normalized)
+    ? normalized
+    : null;
 }
 
-function parseEmailVerificationToken(): string | null {
-  const params = new URLSearchParams(globalThis.location?.search ?? '');
+function parseEmailVerificationToken(search: string): string | null {
+  const params = new URLSearchParams(search);
   const token = params.get('verifyEmailToken')?.trim();
   return token || null;
 }
 
-function parsePasswordResetToken(): string | null {
-  const params = new URLSearchParams(globalThis.location?.search ?? '');
+function parsePasswordResetToken(search: string): string | null {
+  const params = new URLSearchParams(search);
   const token = params.get('resetPasswordToken')?.trim();
   return token || null;
+}
+
+function resolvePostLoginPath(returnPath: string | null): string {
+  if (!returnPath || returnPath === '/login') {
+    return '/editor';
+  }
+
+  return returnPath;
+}
+
+function resolveGuestPath(returnPath: string | null): string {
+  if (!returnPath || returnPath === '/login' || returnPath.startsWith('/editor/')) {
+    return '/editor';
+  }
+
+  return returnPath;
 }
 
 function removeQueryParamFromCurrentUrl(paramName: string): void {
@@ -123,7 +197,11 @@ function removeQueryParamFromCurrentUrl(paramName: string): void {
   }
 }
 
-export function EditorApp() {
+export function EditorApp({ theme, toggleTheme }: Props) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const params = useParams<{ projectId?: string; shareSlug?: string }>();
+
   // --- Refs (shared across hooks) ---
   const canvasElementRef = useRef<HTMLCanvasElement | null>(null);
   const canvasStageRef = useRef<HTMLDivElement | null>(null);
@@ -214,10 +292,8 @@ export function EditorApp() {
   const [templateSearchQuery, setTemplateSearchQuery] = useState('');
   const [debouncedTemplateSearchQuery, setDebouncedTemplateSearchQuery] = useState('');
   const [templateSort, setTemplateSort] = useState<'recommended' | 'name-asc' | 'name-desc' | 'size-asc' | 'size-desc'>('recommended');
-  const [authScreenVisible, setAuthScreenVisible] = useState(true);
-  const authReturnTargetRef = useRef<AuthReturnTarget | null>(parseAuthReturnTarget());
-  const emailVerificationTokenRef = useRef<string | null>(parseEmailVerificationToken());
-  const [passwordResetToken, setPasswordResetToken] = useState<string | null>(parsePasswordResetToken());
+  const emailVerificationTokenRef = useRef<string | null>(null);
+  const [passwordResetToken, setPasswordResetToken] = useState<string | null>(parsePasswordResetToken(location.search));
   const [updatingTemplateId, setUpdatingTemplateId] = useState<string | null>(null);
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
   const templateCreationSnapshotRef = useRef<{
@@ -226,6 +302,28 @@ export function EditorApp() {
     projectName: string;
     projectDescription: string;
   } | null>(null);
+  const lastPersistedSignatureRef = useRef<string | null>(null);
+  const autosaveTimerRef = useRef<number | null>(null);
+  const loadedSharedSlugRef = useRef<string | null>(null);
+  const authReturnPath = useMemo(() => parseAuthReturnPath(location.search), [location.search]);
+  const emailVerificationToken = useMemo(() => parseEmailVerificationToken(location.search), [location.search]);
+  const isAuthRoute = location.pathname === '/login';
+  const isSharedRoute = location.pathname.startsWith('/shared/');
+  const routeProjectId = params.projectId ?? null;
+  const routeShareSlug = params.shareSlug ?? null;
+  const [saveState, setSaveState] = useState<'idle' | 'dirty' | 'manual-saving' | 'autosave-saving' | 'saved' | 'manual-failed' | 'autosave-failed'>('idle');
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareStatus, setShareStatus] = useState('');
+  const [shareError, setShareError] = useState('');
+  const [sharedProjectLoading, setSharedProjectLoading] = useState(false);
+  const [sharedProjectUnavailable, setSharedProjectUnavailable] = useState(false);
+  const [projectHydrating, setProjectHydrating] = useState(false);
+  const [canvasReloadNonce, setCanvasReloadNonce] = useState(0);
+  const isReadOnly = isSharedRoute;
+  const isTemplatesMode = workspaceMode === 'templates';
+  const isProfileView = !isTemplatesMode && sidebarPanel === 'account';
+  const canOpenWorkspaceDirectly = Boolean(authUser || getAccessToken() || isGuestModeEnabled());
 
   const templateCategories = useMemo(() => {
     const categories = Array.from(new Set(templateCatalog.map((item) => item.category))).filter(Boolean);
@@ -316,7 +414,19 @@ export function EditorApp() {
     setSavedProjects, setSavedProjectsLoading, setSavedProjectsError,
     setAuthUser, setAuthError,
     saveCurrentFrame: history.saveCurrentFrame,
-    openEditorWorkspace: frameActions.openEditorWorkspace
+    openEditorWorkspace: frameActions.openEditorWorkspace,
+    onProjectPersisted: (project) => {
+      lastPersistedSignatureRef.current = createProjectSignature(
+        parseEditorProjectData(project.data) ?? framesRef.current,
+        project.name,
+        project.description ?? ''
+      );
+      setHasUnsavedChanges(false);
+      setSaveState('saved');
+    },
+    onProjectFramesApplied: () => {
+      setCanvasReloadNonce((value) => value + 1);
+    }
   });
 
   const auth = useAuth({
@@ -348,6 +458,9 @@ export function EditorApp() {
     canvasElementRef, fabricCanvasRef, framesRef, historyRef,
     activeToolRef, spacePressedRef, drawingObjectRef, drawStartRef,
     activeFrameId, workspaceMode,
+    isReadOnly,
+    canvasReloadNonce,
+    isProjectHydrating: projectHydrating,
     addTextAt: objectActions.addTextAt,
     createDrawableObject: objectActions.createDrawableObject,
     saveCurrentFrame: history.saveCurrentFrame,
@@ -361,6 +474,7 @@ export function EditorApp() {
 
   useKeyboard({
     activeFrameId, fileInputRef, isPanningRef,
+    isReadOnly,
     setSpacePressed, setActiveTool,
     removeSelected: objectActions.removeSelected,
     copySelected: objectActions.copySelected,
@@ -370,29 +484,18 @@ export function EditorApp() {
     redoFrame: history.redoFrame
   });
 
-  const shareCurrentProject = useCallback((target: 'x' | 'facebook' | 'linkedin') => {
-    const projectLabel = projectName.trim() || 'Webster design';
-    const text = encodeURIComponent(`Check out my design project: ${projectLabel}`);
-    const url = encodeURIComponent(globalThis.location.href);
-
-    const targetUrl = target === 'x'
-      ? `https://twitter.com/intent/tweet?text=${text}&url=${url}`
-      : target === 'facebook'
-        ? `https://www.facebook.com/sharer/sharer.php?u=${url}`
-        : `https://www.linkedin.com/sharing/share-offsite/?url=${url}`;
-
-    globalThis.open(targetUrl, '_blank', 'noopener,noreferrer');
-  }, [projectName]);
-
   // Start session on mount
   useEffect(() => { void auth.bootstrapSession(); }, []);
 
   useEffect(() => {
-    const token = emailVerificationTokenRef.current;
+    const token = emailVerificationToken;
     if (!token) {
       return;
     }
-    emailVerificationTokenRef.current = null;
+    if (emailVerificationTokenRef.current === token) {
+      return;
+    }
+    emailVerificationTokenRef.current = token;
 
     let cancelled = false;
 
@@ -403,7 +506,6 @@ export function EditorApp() {
       }
 
       setAuthMode('login');
-      setAuthScreenVisible(true);
       removeQueryParamFromCurrentUrl('verifyEmailToken');
 
       if (!ok) {
@@ -416,44 +518,53 @@ export function EditorApp() {
     return () => {
       cancelled = true;
     };
-  }, [auth, setAuthMode]);
+  }, [auth, emailVerificationToken, setAuthMode]);
 
   useEffect(() => {
-    if (!passwordResetToken) {
-      return;
+    const nextToken = parsePasswordResetToken(location.search);
+    setPasswordResetToken(nextToken);
+    if (nextToken) {
+      setAuthMode('login');
     }
+  }, [location.search, setAuthMode]);
 
-    setAuthMode('login');
-    setAuthScreenVisible(true);
-  }, [passwordResetToken, setAuthMode]);
-
-  const applyAuthReturnTarget = useCallback(() => {
-    const returnTarget = authReturnTargetRef.current;
-    if (!returnTarget) {
-      return;
+  useEffect(() => {
+    if (isAuthRoute && authUser) {
+      navigate(resolvePostLoginPath(authReturnPath), { replace: true });
     }
+  }, [authReturnPath, authUser, isAuthRoute, navigate]);
 
-    setWorkspaceMode(returnTarget);
-    try {
-      const url = new URL(globalThis.location.href);
-      if (url.searchParams.has('returnTo')) {
-        url.searchParams.delete('returnTo');
-        const nextSearch = url.searchParams.toString();
-        const nextPath = `${url.pathname}${nextSearch ? `?${nextSearch}` : ''}${url.hash}`;
-        globalThis.history.replaceState(null, '', nextPath);
+  useEffect(() => {
+    const pathname = location.pathname;
+    if (pathname === '/templates') {
+      if (workspaceMode !== 'templates') {
+        setWorkspaceMode('templates');
       }
-    } catch {
-      // Ignore URL parsing issues in non-browser environments.
+      if (sidebarPanel !== 'templates') {
+        setSidebarPanel('templates');
+      }
+      return;
     }
-    authReturnTargetRef.current = null;
-  }, [setWorkspaceMode]);
 
-  useEffect(() => {
-    if (authUser) {
-      setAuthScreenVisible(false);
-      applyAuthReturnTarget();
+    if (pathname === '/projects' || pathname === '/profile') {
+      if (workspaceMode !== 'editor') {
+        setWorkspaceMode('editor');
+      }
+      if (sidebarPanel !== 'account') {
+        setSidebarPanel('account');
+      }
+      return;
     }
-  }, [applyAuthReturnTarget, authUser]);
+
+    if (pathname.startsWith('/editor') || pathname.startsWith('/shared/')) {
+      if (workspaceMode !== 'editor') {
+        setWorkspaceMode('editor');
+      }
+      if (sidebarPanel === 'account') {
+        setSidebarPanel('templates');
+      }
+    }
+  }, [location.pathname, setSidebarPanel, setWorkspaceMode, sidebarPanel, workspaceMode]);
 
   const refreshTemplates = useCallback(async (fallbackToStarterTemplates = true) => {
     setTemplatesLoading(true);
@@ -495,14 +606,330 @@ export function EditorApp() {
     }
   }, [activeTemplateCategory, templateCategories]);
 
+  useEffect(() => {
+    if (!routeShareSlug || !isSharedRoute) {
+      loadedSharedSlugRef.current = null;
+      setSharedProjectUnavailable(false);
+      setSharedProjectLoading(false);
+      setProjectHydrating(false);
+      return;
+    }
+
+    if (loadedSharedSlugRef.current === routeShareSlug) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadSharedProject = async () => {
+      setSharedProjectUnavailable(false);
+      setSharedProjectLoading(true);
+      setProjectHydrating(true);
+      const opened = await projects.openSharedProject(routeShareSlug);
+      if (cancelled) {
+        return;
+      }
+
+      if (opened) {
+        loadedSharedSlugRef.current = routeShareSlug;
+        setSaveState('idle');
+      } else {
+        const nextFrames = createInitialFrames();
+        historyRef.current = {};
+        framesRef.current = nextFrames;
+        setFrames(nextFrames);
+        setActiveFrameId(nextFrames[0].id);
+        setSelectedObject(null);
+        setLayers([]);
+        setCornerHandles([]);
+        setResizeHandles([]);
+        setProjectId(null);
+        setProjectName(defaultProjectName);
+        setProjectDescription('');
+        setProjectStatus('');
+        setShareStatus('');
+        setShareError('');
+        setHasUnsavedChanges(false);
+        setSaveState('idle');
+        setCanvasReloadNonce((value) => value + 1);
+        loadedSharedSlugRef.current = null;
+        setSharedProjectUnavailable(true);
+      }
+
+      setSharedProjectLoading(false);
+      setProjectHydrating(false);
+    };
+
+    void loadSharedProject();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isSharedRoute, routeShareSlug]);
+
+  useEffect(() => {
+    if (!routeProjectId || !location.pathname.startsWith('/editor/')) {
+      setProjectHydrating(false);
+      return;
+    }
+
+    if (authChecking) {
+      return;
+    }
+
+    if (!authUser) {
+      navigate(`/login?returnTo=${encodeURIComponent(`${location.pathname}${location.search}`)}`, { replace: true });
+      return;
+    }
+
+    if (routeProjectId === projectId || openingProjectId === routeProjectId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadRequestedProject = async () => {
+      setProjectHydrating(true);
+      const opened = await projects.openSavedProject(routeProjectId);
+      if (!opened && !cancelled) {
+        navigate('/editor', { replace: true });
+      }
+      if (!cancelled) {
+        setProjectHydrating(false);
+      }
+    };
+
+    void loadRequestedProject();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    authChecking,
+    authUser,
+    location.pathname,
+    location.search,
+    navigate,
+    openingProjectId,
+    projectId,
+    routeProjectId
+  ]);
+
+  useEffect(() => {
+    if (lastPersistedSignatureRef.current === null) {
+      lastPersistedSignatureRef.current = createProjectSignature(frames, projectName, projectDescription);
+    }
+  }, [frames, projectDescription, projectName]);
+
+  useEffect(() => {
+    setShareStatus('');
+    setShareError('');
+  }, [isReadOnly, projectId]);
+
+  useEffect(() => {
+    if (autosaveTimerRef.current !== null) {
+      window.clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+
+    if (isAuthRoute || isTemplatesMode || authChecking || projectHydrating) {
+      return;
+    }
+
+    if (isReadOnly) {
+      setHasUnsavedChanges(false);
+      setSaveState('idle');
+      return;
+    }
+
+    const currentSignature = createProjectSignature(frames, projectName, projectDescription);
+    const lastPersistedSignature = lastPersistedSignatureRef.current;
+    const dirty = lastPersistedSignature !== currentSignature;
+
+    setHasUnsavedChanges(dirty);
+
+    if (!authUser) {
+      setSaveState('idle');
+      setShareStatus('');
+      setShareError('');
+      return;
+    }
+
+    if (!dirty) {
+      if (projectId) {
+        setSaveState('saved');
+      } else {
+        setSaveState('idle');
+      }
+      return;
+    }
+
+    setSaveState('dirty');
+
+    if (!projectId || !projectName.trim()) {
+      return;
+    }
+
+    autosaveTimerRef.current = window.setTimeout(() => {
+      void (async () => {
+        setSaveState('autosave-saving');
+        const expectedSignature = createProjectSignature(framesRef.current, projectName, projectDescription);
+        const saved = await projects.autosaveProject();
+        if (!saved) {
+          setSaveState('autosave-failed');
+          return;
+        }
+        lastPersistedSignatureRef.current = expectedSignature;
+        setHasUnsavedChanges(false);
+        setSaveState('saved');
+        setProjectError('');
+      })();
+    }, 3000);
+
+    return () => {
+      if (autosaveTimerRef.current !== null) {
+        window.clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+    };
+  }, [
+    authChecking,
+    authUser,
+    frames,
+    isAuthRoute,
+    isReadOnly,
+    isTemplatesMode,
+    projectHydrating,
+    projectDescription,
+    projectId,
+    projectName,
+    setProjectError
+  ]);
+
   // --- Derived ---
   const activeName = selectedObject ? selectedObject.objectName ?? selectedObject.type ?? 'Object' : 'nothing selected';
   const isTextSelected = selectedObject instanceof Textbox || selectedObject?.type === 'textbox' || selectedObject?.type === 'text';
   const isShapeSelected = Boolean(selectedObject && selectedObject.type !== 'image' && !isTextSelected);
   const canEditCorners = Boolean(selectedObject && isCornerEditable(selectedObject));
   const activeFillLayer = fillLayers.find((layer) => layer.id === activeFillLayerId) ?? fillLayers[0];
-  const isTemplatesMode = workspaceMode === 'templates';
-  const isProfileView = !isTemplatesMode && sidebarPanel === 'account';
+  const currentSavedProject = savedProjects.find((item) => item.id === projectId) ?? null;
+  const isProjectShared = Boolean(currentSavedProject?.isPublic && currentSavedProject?.shareSlug);
+  const saveStatusLabel = isReadOnly
+    ? sharedProjectLoading
+      ? 'Loading shared project...'
+      : 'Read-only shared project'
+    : !authUser
+      ? 'Autosave unavailable for guests'
+      : saveState === 'manual-saving' || saveState === 'autosave-saving'
+        ? 'Saving...'
+        : saveState === 'manual-failed'
+          ? 'Save failed'
+          : saveState === 'autosave-failed'
+            ? 'Autosave failed'
+            : hasUnsavedChanges
+              ? 'Unsaved changes'
+              : projectId
+                ? 'Saved'
+                : 'Unsaved changes';
+  const saveHint = !isReadOnly && authUser && !projectId ? 'Save once to enable autosave' : '';
+
+  const copyShareLink = useCallback(async (shareSlug: string) => {
+    const url = buildProjectShareUrl(shareSlug);
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        setShareStatus('Copied share link.');
+        setShareError('');
+        return;
+      }
+    } catch {
+      // Clipboard access can be unavailable in some browsers or insecure contexts.
+    }
+    setShareStatus('Share link created.');
+    setShareError('');
+  }, []);
+
+  const ensureProjectShareUrl = useCallback(async (options?: { copy?: boolean }) => {
+    if (isReadOnly || shareBusy) {
+      return null;
+    }
+
+    if (!projectId) {
+      setShareStatus('');
+      setShareError('Save the project before sharing.');
+      return null;
+    }
+
+    if (currentSavedProject?.shareSlug) {
+      const existingUrl = buildProjectShareUrl(currentSavedProject.shareSlug);
+      if (options?.copy) {
+        await copyShareLink(currentSavedProject.shareSlug);
+      }
+      return existingUrl;
+    }
+
+    setShareBusy(true);
+    setShareStatus('');
+    setShareError('');
+    try {
+      const response = await projects.enableProjectShare();
+      if (!response.shareSlug) {
+        throw new Error('Share link was not returned.');
+      }
+      if (options?.copy) {
+        await copyShareLink(response.shareSlug);
+      } else {
+        setShareStatus('Share link ready.');
+        setShareError('');
+      }
+      return buildProjectShareUrl(response.shareSlug);
+    } catch (error) {
+      setShareError(getErrorMessage(error, 'Could not create the public share link.'));
+      return null;
+    } finally {
+      setShareBusy(false);
+    }
+  }, [copyShareLink, currentSavedProject?.shareSlug, isReadOnly, projectId, projects, shareBusy]);
+
+  const shareCurrentProject = useCallback(async () => {
+    await ensureProjectShareUrl({ copy: true });
+  }, [ensureProjectShareUrl]);
+
+  const shareProjectToSocial = useCallback(async (platform: SocialPlatform) => {
+    const shareUrl = await ensureProjectShareUrl();
+    if (!shareUrl) {
+      return;
+    }
+
+    const popup = openSocialSharePopup(buildSocialShareUrl(platform, shareUrl, projectName));
+    if (!popup) {
+      setShareStatus('');
+      setShareError('Allow pop-ups to open the social share window.');
+      return;
+    }
+
+    const platformLabel = platform === 'x' ? 'X' : platform === 'linkedin' ? 'LinkedIn' : 'Facebook';
+    setShareStatus(`Opened ${platformLabel} share.`);
+    setShareError('');
+  }, [ensureProjectShareUrl, projectName]);
+
+  const disableSharedProject = useCallback(async () => {
+    if (isReadOnly || shareBusy) {
+      return;
+    }
+
+    setShareBusy(true);
+    setShareStatus('');
+    setShareError('');
+    try {
+      await projects.disableProjectShare();
+      setShareStatus('Share link disabled.');
+    } catch (error) {
+      setShareError(getErrorMessage(error, 'Could not disable the public share link.'));
+    } finally {
+      setShareBusy(false);
+    }
+  }, [isReadOnly, projects, shareBusy]);
 
   const createProjectFromTemplateWithSnapshot = (template: typeof galleryTemplates[number]) => {
     templateCreationSnapshotRef.current = {
@@ -556,6 +983,76 @@ export function EditorApp() {
     }
   };
 
+  const openLoginRoute = useCallback((returnTo = `${location.pathname}${location.search}`) => {
+    const nextParams = new URLSearchParams();
+    if (returnTo && returnTo !== '/login') {
+      nextParams.set('returnTo', returnTo);
+    }
+
+    navigate(`/login${nextParams.toString() ? `?${nextParams.toString()}` : ''}`);
+  }, [location.pathname, location.search, navigate]);
+
+  const openEditorRoute = useCallback((nextProjectId: string | null = projectId) => {
+    frameActions.handleSidebarSelect('templates');
+    frameActions.openEditorWorkspace();
+    navigate(!isReadOnly && nextProjectId ? `/editor/${nextProjectId}` : '/editor');
+  }, [frameActions, isReadOnly, navigate, projectId]);
+
+  const openTemplatesRoute = useCallback(() => {
+    setSidebarPanel('templates');
+    setWorkspaceMode('templates');
+    navigate('/templates');
+  }, [navigate, setSidebarPanel, setWorkspaceMode]);
+
+  const openProjectsRoute = useCallback((target: '/projects' | '/profile' = '/projects') => {
+    setWorkspaceMode('editor');
+    setSidebarPanel('account');
+    navigate(target);
+  }, [navigate, setSidebarPanel, setWorkspaceMode]);
+
+  const viewFrameReadOnly = useCallback((frameId: string) => {
+    setWorkspaceMode('editor');
+    setActiveFrameId(frameId);
+    setWorkspacePan({ x: 0, y: 0 });
+    setWorkspaceZoom(0.62);
+    setActiveTool('select');
+  }, [setActiveFrameId, setActiveTool, setWorkspaceMode, setWorkspacePan, setWorkspaceZoom]);
+
+  const logoutAndOpenLogin = useCallback(() => {
+    auth.logoutUser();
+    navigate('/login', { replace: true });
+  }, [auth, navigate]);
+
+  const saveProjectToBackendAndRoute = useCallback(async (mode: 'save' | 'save-as-new') => {
+    if (isReadOnly) {
+      setProjectError('Shared projects are read-only.');
+      setSaveState('manual-failed');
+      return;
+    }
+    setSaveState('manual-saving');
+    const savedProjectId = await projects.saveProjectToBackend(mode);
+    if (savedProjectId) {
+      setSaveState('saved');
+      navigate(`/editor/${savedProjectId}`, { replace: mode === 'save' && projectId === savedProjectId });
+    } else {
+      setSaveState('manual-failed');
+    }
+  }, [isReadOnly, navigate, projectId, projects, setProjectError]);
+
+  const openSavedProjectAndRoute = useCallback(async (id: string) => {
+    const opened = await projects.openSavedProject(id);
+    if (opened) {
+      navigate(`/editor/${id}`);
+    }
+  }, [navigate, projects]);
+
+  const deleteSavedProjectAndRoute = useCallback(async (id: string) => {
+    const deleted = await projects.deleteSavedProject(id);
+    if (deleted && projectId === id) {
+      navigate('/editor', { replace: true });
+    }
+  }, [navigate, projectId, projects]);
+
   if (authChecking) {
     return (
       <main className="auth-page" aria-label="Authentication loading">
@@ -566,9 +1063,11 @@ export function EditorApp() {
     );
   }
 
-  if (authScreenVisible && !authUser) {
+  if (isAuthRoute && !authUser) {
     return (
       <AuthPage
+        theme={theme}
+        toggleTheme={toggleTheme}
         authMode={authMode}
         setAuthMode={setAuthMode}
         resetAuthMessages={auth.resetAuthMessages}
@@ -582,7 +1081,13 @@ export function EditorApp() {
         authChecking={authChecking}
         authStatus={authStatus}
         authError={authError}
-        submitAuth={auth.submitAuth}
+        submitAuth={async () => {
+          const ok = await auth.submitAuth();
+          if (ok) {
+            navigate(resolvePostLoginPath(authReturnPath), { replace: true });
+          }
+          return ok;
+        }}
         resendEmailVerification={auth.resendEmailVerification}
         requestPasswordReset={auth.startPasswordReset}
         passwordResetToken={passwordResetToken}
@@ -601,16 +1106,42 @@ export function EditorApp() {
           return true;
         }}
         continueAsGuest={() => {
+          enableGuestMode();
           auth.resetAuthMessages();
-          setAuthScreenVisible(false);
+          navigate(resolveGuestPath(authReturnPath), { replace: true });
         }}
       />
+    );
+  }
+
+  if (isSharedRoute && sharedProjectUnavailable && !sharedProjectLoading) {
+    return (
+      <main className="auth-page shared-project-unavailable-page" aria-label="Shared project unavailable">
+        <section className="auth-card shared-project-unavailable-card">
+          <header className="auth-head">
+            <h1>This shared project is no longer available.</h1>
+            <p>The public link is missing, disabled, or no longer accessible.</p>
+          </header>
+          <button
+            className="wide-action sidebar-btn-primary"
+            onClick={() => navigate(canOpenWorkspaceDirectly ? '/editor' : '/login', { replace: true })}
+            type="button"
+          >
+            {canOpenWorkspaceDirectly ? 'Open Webster' : 'Go to login'}
+          </button>
+        </section>
+      </main>
     );
   }
 
   return (
     <main className={isTemplatesMode ? 'designer-shell templates-mode' : isProfileView ? 'designer-shell profile-mode' : 'designer-shell'}>
       <EditorSidebar
+        isReadOnly={isReadOnly}
+        theme={theme}
+        toggleTheme={toggleTheme}
+        autosaveLabel={saveStatusLabel}
+        saveHint={saveHint}
         isTemplatesMode={isTemplatesMode}
         isProfileView={isProfileView}
         sidebarPanel={sidebarPanel}
@@ -619,6 +1150,7 @@ export function EditorApp() {
         frames={frames}
         activeFrameId={activeFrameId}
         switchFrame={frameActions.switchFrame}
+        viewFrameReadOnly={viewFrameReadOnly}
         getTemplateToneClass={getTemplateToneClass}
         getTemplatePreviewClass={getTemplatePreviewClass}
         presets={presets}
@@ -645,17 +1177,15 @@ export function EditorApp() {
         toggleLayerVisibility={objectActions.toggleLayerVisibility}
         moveLayer={objectActions.moveLayer}
         authUser={authUser}
-        logoutUser={() => {
-          auth.logoutUser();
-          setAuthScreenVisible(true);
-        }}
+        logoutUser={logoutAndOpenLogin}
         openAuthPage={() => {
           auth.resetAuthMessages();
-          setAuthScreenVisible(true);
+          openLoginRoute();
         }}
         authStatus={authStatus}
         authError={authError}
         canManageSavedProjects={projects.canManageSavedProjects}
+        isProjectShared={isProjectShared}
         projectId={projectId}
         projectName={projectName}
         setProjectName={setProjectName}
@@ -664,7 +1194,12 @@ export function EditorApp() {
         defaultProjectName={defaultProjectName}
         undoFrame={history.undoFrame}
         redoFrame={history.redoFrame}
-        saveProjectToBackend={projects.saveProjectToBackend}
+        saveProjectToBackend={saveProjectToBackendAndRoute}
+        shareProject={shareCurrentProject}
+        disableProjectShare={disableSharedProject}
+        shareBusy={shareBusy}
+        shareStatus={shareStatus}
+        shareError={shareError}
         isSavingProject={isSavingProject}
         projectRequestBusy={projects.projectRequestBusy}
         refreshSavedProjects={projects.refreshSavedProjects}
@@ -672,17 +1207,20 @@ export function EditorApp() {
         exportProject={() => projects.exportProject(setProjectStatus, setProjectError)}
         exportProjectFromBackend={(format) => projects.exportProjectFromBackend(format, setProjectStatus, setProjectError)}
         importInputRef={importInputRef}
-        importProject={projects.importProject}
+        importProject={(event) => projects.importProject(event, () => navigate('/editor'))}
         projectStatus={projectStatus}
         projectError={projectError}
         savedProjectsError={savedProjectsError}
         savedProjects={savedProjects}
-        openSavedProject={projects.openSavedProject}
+        openSavedProject={openSavedProjectAndRoute}
         openingProjectId={openingProjectId}
-        deleteSavedProject={projects.deleteSavedProject}
+        deleteSavedProject={deleteSavedProjectAndRoute}
         deletingProjectId={deletingProjectId}
         formatSavedProjectDate={formatSavedProjectDate}
         owlMascot={owlMascot}
+        openEditorRoute={openEditorRoute}
+        openTemplatesRoute={openTemplatesRoute}
+        openProjectsRoute={() => openProjectsRoute('/projects')}
       />
 
       {isProfileView ? (
@@ -694,21 +1232,15 @@ export function EditorApp() {
           savedProjectsLoading={savedProjectsLoading}
           openingProjectId={openingProjectId}
           deletingProjectId={deletingProjectId}
-          openSavedProject={projects.openSavedProject}
-          deleteSavedProject={projects.deleteSavedProject}
+          openSavedProject={openSavedProjectAndRoute}
+          deleteSavedProject={deleteSavedProjectAndRoute}
           refreshSavedProjects={() => projects.refreshSavedProjects()}
           openAuthPage={() => {
             auth.resetAuthMessages();
-            setAuthScreenVisible(true);
+            openLoginRoute();
           }}
-          logoutUser={() => {
-            auth.logoutUser();
-            setAuthScreenVisible(true);
-          }}
-          openEditorWorkspace={() => {
-            frameActions.handleSidebarSelect('templates');
-            frameActions.openEditorWorkspace();
-          }}
+          logoutUser={logoutAndOpenLogin}
+          openEditorWorkspace={() => openEditorRoute(projectId)}
           saveProfileName={async (name) => {
             try {
               const updatedUser = await updateCurrentUser({ name });
@@ -751,20 +1283,21 @@ export function EditorApp() {
         />
       ) : (
       <EditorWorkspace
+        isReadOnly={isReadOnly}
         isTemplatesMode={isTemplatesMode}
         activeFrameName={activeFrame.name}
         activeFrameSizeLabel={`${activeFrame.width} x ${activeFrame.height}`}
         projectName={projectName}
         setProjectName={setProjectName}
         projectId={projectId}
+        saveStatusLabel={saveStatusLabel}
+        saveHint={saveHint}
         projectStatus={projectStatus}
-        projectError={projectError}
         projectRequestBusy={projects.projectRequestBusy}
-        openEditorWorkspace={frameActions.openEditorWorkspace}
-        openProjectsWorkspace={() => {
-          frameActions.openEditorWorkspace();
-          frameActions.handleSidebarSelect('account');
-        }}
+        saveProject={() => { void saveProjectToBackendAndRoute('save'); }}
+        isSavingProject={isSavingProject}
+        openEditorWorkspace={() => openEditorRoute(projectId)}
+        openProjectsWorkspace={() => openProjectsRoute('/projects')}
         isProjectsView={!isTemplatesMode && sidebarPanel === 'account'}
         setWorkspaceMode={setWorkspaceMode}
         workspaceZoom={workspaceZoom}
@@ -778,7 +1311,15 @@ export function EditorApp() {
           void projects.createTemplateFromCurrentProject(setProjectStatus, setProjectError)
             .then(() => refreshTemplates(false));
         }}
-        shareCurrentProject={shareCurrentProject}
+        shareCurrentProject={() => { void shareCurrentProject(); }}
+        shareToLinkedIn={() => { void shareProjectToSocial('linkedin'); }}
+        shareToFacebook={() => { void shareProjectToSocial('facebook'); }}
+        shareToX={() => { void shareProjectToSocial('x'); }}
+        disableProjectShare={() => { void disableSharedProject(); }}
+        isProjectShared={isProjectShared}
+        shareBusy={shareBusy}
+        shareStatus={shareStatus}
+        shareError={shareError}
         galleryTemplates={visibleTemplates}
         templateCatalogCount={templateCatalog.length}
         templateCategories={templateCategories}
@@ -795,8 +1336,18 @@ export function EditorApp() {
         deletingTemplateId={deletingTemplateId}
         updateTemplateItem={updateTemplateFromGallery}
         deleteTemplateItem={deleteTemplateFromGallery}
-        createProjectFromTemplate={createProjectFromTemplateWithSnapshot}
-        undoTemplateProjectCreation={undoTemplateProjectCreation}
+        createProjectFromTemplate={(template) => {
+          createProjectFromTemplateWithSnapshot(template);
+          navigate('/editor');
+        }}
+        undoTemplateProjectCreation={() => {
+          const previousProjectId = templateCreationSnapshotRef.current?.projectId ?? null;
+          const reverted = undoTemplateProjectCreation();
+          if (reverted) {
+            navigate(previousProjectId ? `/editor/${previousProjectId}` : '/editor');
+          }
+          return reverted;
+        }}
         spacePressed={spacePressed}
         startWorkspacePan={workspace.startWorkspacePan}
         handleStagePointerEnter={workspace.handleStagePointerEnter}
@@ -818,6 +1369,7 @@ export function EditorApp() {
       )}
 
       {isProfileView ? null : <EditorProperties
+        isReadOnly={isReadOnly}
         frameWidthInput={frameWidthInput}
         setFrameWidthInput={setFrameWidthInput}
         commitFrameWidth={frameActions.commitFrameWidth}

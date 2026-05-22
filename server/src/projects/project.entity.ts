@@ -15,6 +15,15 @@ export class ProjectEntity {
   @Column({ type: 'jsonb' })
   data!: Record<string, unknown>;
 
+  @Column({ type: 'boolean', default: false })
+  isPublic!: boolean;
+
+  @Column({ type: 'varchar', length: 64, nullable: true, unique: true })
+  shareSlug!: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  lastOpenedAt!: Date | null;
+
   @ManyToOne(() => UserEntity, (user) => user.projects, { nullable: false, onDelete: 'CASCADE' })
   owner!: UserEntity;
 

@@ -1,6 +1,17 @@
 const rawApiUrl = import.meta.env.VITE_API_URL?.trim() ?? '';
 const apiBaseUrl = rawApiUrl.replace(/\/$/, '');
 const accessTokenStorageKey = 'webster-access-token';
+const guestModeStorageKey = 'webster-guest-mode';
+
+export class HttpError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'HttpError';
+    this.status = status;
+  }
+}
 
 export function buildApiPath(path: string) {
   return `${apiBaseUrl}${path}`;
@@ -30,6 +41,30 @@ export function clearAccessToken() {
   storage.removeItem(accessTokenStorageKey);
 }
 
+export function isGuestModeEnabled() {
+  const storage = globalThis.sessionStorage;
+  if (!storage || typeof storage.getItem !== 'function') {
+    return false;
+  }
+  return storage.getItem(guestModeStorageKey) === 'true';
+}
+
+export function enableGuestMode() {
+  const storage = globalThis.sessionStorage;
+  if (!storage || typeof storage.setItem !== 'function') {
+    return;
+  }
+  storage.setItem(guestModeStorageKey, 'true');
+}
+
+export function clearGuestMode() {
+  const storage = globalThis.sessionStorage;
+  if (!storage || typeof storage.removeItem !== 'function') {
+    return;
+  }
+  storage.removeItem(guestModeStorageKey);
+}
+
 export async function requestJson<T>(input: string, init?: RequestInit, options?: { auth?: boolean }): Promise<T> {
   const headers = new Headers(init?.headers ?? {});
   if (!headers.has('Content-Type') && init?.body) {
@@ -50,7 +85,7 @@ export async function requestJson<T>(input: string, init?: RequestInit, options?
 
   if (!response.ok) {
     const message = await parseErrorMessage(response);
-    throw new Error(message);
+    throw new HttpError(message, response.status);
   }
 
   if (response.status === 204) {
@@ -74,4 +109,8 @@ async function parseErrorMessage(response: Response) {
   }
 
   return response.statusText || 'Request failed';
+}
+
+export function getHttpErrorStatus(error: unknown): number | null {
+  return error instanceof HttpError ? error.status : null;
 }

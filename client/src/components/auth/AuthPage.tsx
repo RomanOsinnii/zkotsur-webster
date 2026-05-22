@@ -1,8 +1,12 @@
 import { AuthMode } from '../../lib/editorTypes';
 import { validateAuthInput } from '../../lib/authValidation';
 import { useState } from 'react';
+import { Moon, Sun } from 'lucide-react';
+import { ThemeMode } from '../../lib/theme';
 
 type Props = {
+  theme: ThemeMode;
+  toggleTheme: () => void;
   authMode: AuthMode;
   setAuthMode: (mode: AuthMode) => void;
   resetAuthMessages: () => void;
@@ -26,6 +30,8 @@ type Props = {
 
 export function AuthPage(props: Props) {
   const {
+    theme,
+    toggleTheme,
     authMode,
     setAuthMode,
     resetAuthMessages,
@@ -69,6 +75,17 @@ export function AuthPage(props: Props) {
     <main className="auth-page" aria-label="Authentication page">
       <section className="auth-card">
         <header className="auth-head">
+          <div className="theme-toggle-row">
+            <button
+              aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+              className="theme-toggle"
+              onClick={toggleTheme}
+              type="button"
+            >
+              {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+              <span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
+            </button>
+          </div>
           <p className="eyebrow">Webster</p>
           <h1>{authMode === 'login' ? 'Welcome back' : 'Create your account'}</h1>
           <p>

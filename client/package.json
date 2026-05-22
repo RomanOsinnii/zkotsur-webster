@@ -16,7 +16,8 @@
     "jszip": "^3.10.1",
     "lucide-react": "^1.11.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.15.1"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",

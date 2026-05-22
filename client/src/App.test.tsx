@@ -1,5 +1,4 @@
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import App from './App';
 
 vi.mock('fabric', () => {
@@ -162,6 +161,29 @@ vi.mock('fabric', () => {
 
 describe('App', () => {
   beforeEach(() => {
+    window.history.replaceState({}, '', '/');
+    const createStorage = () => {
+      const store = new Map<string, string>();
+      return {
+        getItem: vi.fn((key: string) => store.get(key) ?? null),
+        setItem: vi.fn((key: string, value: string) => { store.set(key, value); }),
+        removeItem: vi.fn((key: string) => { store.delete(key); }),
+        clear: vi.fn(() => { store.clear(); })
+      };
+    };
+
+    vi.stubGlobal('localStorage', createStorage());
+    vi.stubGlobal('sessionStorage', createStorage());
+    vi.stubGlobal('matchMedia', vi.fn(() => ({
+      matches: false,
+      media: '(prefers-color-scheme: dark)',
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    })));
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -173,16 +195,23 @@ describe('App', () => {
     vi.unstubAllGlobals();
   });
 
-  it('renders the design editor surface', async () => {
-    const user = userEvent.setup();
+  it('redirects guests from root to the login page', async () => {
     render(<App />);
 
-    expect(screen.getByRole('heading', { name: /welcome back/i })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /continue as guest/i }));
+    expect(await screen.findByRole('heading', { name: /welcome back/i })).toBeInTheDocument();
+  });
 
-    expect(screen.getByRole('heading', { name: /design editor/i })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /create design/i }));
-    expect(screen.getByRole('button', { name: /text/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /export png/i })).toBeInTheDocument();
+  it('opens the authentication page on the login route', async () => {
+    window.history.replaceState({}, '', '/login');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: /welcome back/i })).toBeInTheDocument();
+  });
+
+  it('blocks direct access to protected routes for guests', async () => {
+    window.history.replaceState({}, '', '/editor');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: /welcome back/i })).toBeInTheDocument();
   });
 });

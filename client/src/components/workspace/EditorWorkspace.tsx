@@ -5,15 +5,19 @@ import { CornerHandle, GalleryTemplate, ResizeHandle, SnapLine, ToolMode } from 
 import { type UpdateTemplatePayload } from '../../api/templates';
 
 type Props = {
+  isReadOnly: boolean;
   isTemplatesMode: boolean;
   activeFrameName: string;
   activeFrameSizeLabel: string;
   projectName: string;
   setProjectName: (value: string) => void;
   projectId: string | null;
+  saveStatusLabel: string;
+  saveHint: string;
   projectStatus: string;
-  projectError: string;
   projectRequestBusy: boolean;
+  saveProject: () => void;
+  isSavingProject: boolean;
   openEditorWorkspace: () => void;
   openProjectsWorkspace: () => void;
   isProjectsView: boolean;
@@ -26,7 +30,15 @@ type Props = {
   setShowGrid: React.Dispatch<React.SetStateAction<boolean>>;
   exportFrame: (format: 'png' | 'jpg' | 'pdf') => void;
   createTemplateFromCurrentProject: () => void;
-  shareCurrentProject: (target: 'x' | 'facebook' | 'linkedin') => void;
+  shareCurrentProject: () => void;
+  shareToLinkedIn: () => void;
+  shareToFacebook: () => void;
+  shareToX: () => void;
+  disableProjectShare: () => void;
+  isProjectShared: boolean;
+  shareBusy: boolean;
+  shareStatus: string;
+  shareError: string;
   galleryTemplates: GalleryTemplate[];
   templateCatalogCount: number;
   templateCategories: string[];
@@ -66,12 +78,13 @@ type Props = {
 
 export function EditorWorkspace(props: Props) {
   const {
-    isTemplatesMode, activeFrameName, activeFrameSizeLabel, projectName, setProjectName,
-    projectId, projectStatus, projectError, projectRequestBusy,
+    isReadOnly, isTemplatesMode, activeFrameName, activeFrameSizeLabel, projectName, setProjectName,
+    projectId, saveStatusLabel, saveHint, projectStatus, projectRequestBusy, saveProject, isSavingProject,
     openProjectsWorkspace, isProjectsView,
     openEditorWorkspace, setWorkspaceMode,
     workspaceZoom, setWorkspacePan, setZoom, zoomPercent, showGrid, setShowGrid, exportFrame,
-    createTemplateFromCurrentProject, shareCurrentProject,
+    createTemplateFromCurrentProject, shareCurrentProject, shareToLinkedIn, shareToFacebook, shareToX,
+    disableProjectShare, isProjectShared, shareBusy, shareStatus, shareError,
     galleryTemplates, templateCatalogCount, templateCategories, activeTemplateCategory, setActiveTemplateCategory,
     templateSearchQuery, setTemplateSearchQuery, templateSort, setTemplateSort,
     templatesLoading, templatesError,
@@ -249,25 +262,27 @@ export function EditorWorkspace(props: Props) {
     setTemplateToast(`Template "${item.title}" deleted.`);
   };
 
-  const projectStatusLabel = projectError
-    ? 'Action failed'
-    : projectRequestBusy || /saving|loading|deleting|exporting/i.test(projectStatus)
+  const projectStatusChipLabel = /saving/i.test(saveStatusLabel) || projectRequestBusy || /loading|deleting|exporting/i.test(projectStatus)
       ? 'Syncing...'
-      : /saved|exported|loaded|imported|template saved/i.test(projectStatus)
-        ? 'Saved just now'
-        : projectId
-          ? 'All changes synced'
-          : 'Draft project';
+      : saveStatusLabel;
 
-  const projectStatusClass = projectError
+  const projectStatusClass = /failed/i.test(saveStatusLabel)
     ? 'error'
-    : projectRequestBusy || /saving|loading|deleting|exporting/i.test(projectStatus)
+    : /saving/i.test(saveStatusLabel) || projectRequestBusy || /loading|deleting|exporting/i.test(projectStatus)
       ? 'working'
-      : /saved|exported|loaded|imported|template saved/i.test(projectStatus)
+      : /saved/i.test(saveStatusLabel)
         ? 'saved'
-        : projectId
-          ? 'synced'
-          : 'draft';
+        : /unsaved/i.test(saveStatusLabel)
+          ? 'draft'
+          : projectId
+            ? 'synced'
+            : 'draft';
+
+  const shareStatusClass = shareError ? 'error' : shareStatus ? 'saved' : 'draft';
+  const publicLinkButtonLabel = isProjectShared ? 'Link ON' : 'Link OFF';
+  const publicLinkButtonTitle = isProjectShared
+    ? 'Public share link is enabled. Click to stop sharing.'
+    : 'Public share link is disabled. Use Share link to enable it.';
 
   const isEditorTopbar = !isTemplatesMode && !isProjectsView;
   const topbarModeLabel = isTemplatesMode ? 'Templates catalog' : 'Projects workspace';
@@ -284,6 +299,7 @@ export function EditorWorkspace(props: Props) {
                 <input
                   aria-label="Project name"
                   className="topbar-project-input"
+                  disabled={isReadOnly}
                   maxLength={120}
                   onChange={(event) => setProjectName(event.target.value)}
                   type="text"
@@ -292,7 +308,9 @@ export function EditorWorkspace(props: Props) {
                 <div className="topbar-meta" aria-label="Active frame details">
                   <span className="topbar-frame-chip">{activeFrameName}</span>
                   <span className="topbar-size-chip">{activeFrameSizeLabel}</span>
-                  <span className={`topbar-state-chip ${projectStatusClass}`}>{projectStatusLabel}</span>
+                  <span className={`topbar-state-chip ${projectStatusClass}`}>{projectStatusChipLabel}</span>
+                  {saveHint ? <span className="topbar-size-chip">{saveHint}</span> : null}
+                  {shareStatus || shareError ? <span className={`topbar-state-chip ${shareStatusClass}`}>{shareError || shareStatus}</span> : null}
                 </div>
               </>
             )}
@@ -325,8 +343,19 @@ export function EditorWorkspace(props: Props) {
 
                 <div className="topbar-action-group" aria-label="Project actions">
                   <button
+                    aria-label="Save project"
+                    className="primary-button topbar-action-pill topbar-action-primary"
+                    disabled={isReadOnly || projectRequestBusy}
+                    onClick={saveProject}
+                    title="Save project"
+                    type="button"
+                  >
+                    {isSavingProject ? 'Saving...' : 'Save'}
+                  </button>
+                  <button
                     aria-label="Save current project as template"
                     className="topbar-action-pill topbar-icon-action"
+                    disabled={isReadOnly}
                     onClick={createTemplateFromCurrentProject}
                     title="Save current project as reusable template"
                     type="button"
@@ -334,34 +363,61 @@ export function EditorWorkspace(props: Props) {
                     <Sparkles size={15} />
                   </button>
                   <button
-                    aria-label="Share on X"
+                    aria-label="Create or copy public share link"
                     className="topbar-action-pill topbar-icon-action"
-                    onClick={() => shareCurrentProject('x')}
-                    title="Share on X"
+                    disabled={isReadOnly || !projectId || shareBusy}
+                    onClick={shareCurrentProject}
+                    title={projectId ? 'Create or copy public share link' : 'Save the project before sharing.'}
                     type="button"
                   >
                     <Share2 size={14} />
-                    <span className="topbar-social-mark">X</span>
+                    <span className="topbar-social-mark">Share link</span>
                   </button>
+                  <div className="topbar-social-group" aria-label="Share to social networks">
+                    <button
+                      aria-label="Share project to LinkedIn"
+                      className="topbar-action-pill topbar-icon-action topbar-social-button"
+                      disabled={isReadOnly || !projectId || shareBusy}
+                      onClick={shareToLinkedIn}
+                      title={projectId ? 'Share this project on LinkedIn' : 'Save the project before sharing.'}
+                      type="button"
+                    >
+                      <span className="topbar-social-badge topbar-social-badge-linkedin" aria-hidden>in</span>
+                      <span className="topbar-social-mark">LinkedIn</span>
+                    </button>
+                    <button
+                      aria-label="Share project to Facebook"
+                      className="topbar-action-pill topbar-icon-action topbar-social-button"
+                      disabled={isReadOnly || !projectId || shareBusy}
+                      onClick={shareToFacebook}
+                      title={projectId ? 'Share this project on Facebook' : 'Save the project before sharing.'}
+                      type="button"
+                    >
+                      <span className="topbar-social-badge topbar-social-badge-facebook" aria-hidden>f</span>
+                      <span className="topbar-social-mark">Facebook</span>
+                    </button>
+                    <button
+                      aria-label="Share project to X"
+                      className="topbar-action-pill topbar-icon-action topbar-social-button"
+                      disabled={isReadOnly || !projectId || shareBusy}
+                      onClick={shareToX}
+                      title={projectId ? 'Share this project on X' : 'Save the project before sharing.'}
+                      type="button"
+                    >
+                      <span className="topbar-social-badge topbar-social-badge-x" aria-hidden>X</span>
+                      <span className="topbar-social-mark">X</span>
+                    </button>
+                  </div>
                   <button
-                    aria-label="Share on Facebook"
-                    className="topbar-action-pill topbar-icon-action"
-                    onClick={() => shareCurrentProject('facebook')}
-                    title="Share on Facebook"
+                    aria-label={isProjectShared ? 'Stop sharing public link' : 'Public link sharing is off'}
+                    className={isProjectShared ? 'topbar-action-pill topbar-icon-action active' : 'topbar-action-pill topbar-icon-action'}
+                    disabled={isReadOnly || !isProjectShared || shareBusy}
+                    onClick={disableProjectShare}
+                    title={publicLinkButtonTitle}
                     type="button"
                   >
                     <Share2 size={14} />
-                    <span className="topbar-social-mark">F</span>
-                  </button>
-                  <button
-                    aria-label="Share on LinkedIn"
-                    className="topbar-action-pill topbar-icon-action"
-                    onClick={() => shareCurrentProject('linkedin')}
-                    title="Share on LinkedIn"
-                    type="button"
-                  >
-                    <Share2 size={14} />
-                    <span className="topbar-social-mark">In</span>
+                    <span className="topbar-social-mark">{publicLinkButtonLabel}</span>
                   </button>
                 </div>
 
@@ -532,10 +588,10 @@ export function EditorWorkspace(props: Props) {
           <div className="active-canvas-frame" ref={activeFrameRef} style={{ transform: `translate(${workspacePan.x}px, ${workspacePan.y}px) scale(${workspaceZoom})` }}>
             <canvas ref={canvasElementRef} />
             {snapLines.map((line, index) => <div key={index} className={`snap-line snap-line-${line.direction}`} style={{ [line.direction === 'horizontal' ? 'top' : 'left']: `${line.position}px` }} />)}
-            {resizeHandles.map((handle) => <button aria-label={`Resize from ${handle.key} corner`} className="corner-resize-handle" key={handle.key} onPointerDown={(event) => startResizeDrag(event, handle.key)} style={{ left: handle.left, top: handle.top, cursor: handle.cursor }} title="Drag to resize" type="button" />)}
-            {cornerHandles.map((handle) => <button aria-label={`Drag ${handle.key} radius handle. Hold Ctrl to edit only this corner.`} className="corner-radius-handle" key={handle.key} onPointerDown={(event) => startCornerRadiusDrag(event, handle.key)} style={{ left: handle.left, top: handle.top, cursor: handle.cursor }} title="Drag: all corners. Ctrl+drag: only this corner." type="button" />)}
+            {isReadOnly ? null : resizeHandles.map((handle) => <button aria-label={`Resize from ${handle.key} corner`} className="corner-resize-handle" key={handle.key} onPointerDown={(event) => startResizeDrag(event, handle.key)} style={{ left: handle.left, top: handle.top, cursor: handle.cursor }} title="Drag to resize" type="button" />)}
+            {isReadOnly ? null : cornerHandles.map((handle) => <button aria-label={`Drag ${handle.key} radius handle. Hold Ctrl to edit only this corner.`} className="corner-radius-handle" key={handle.key} onPointerDown={(event) => startCornerRadiusDrag(event, handle.key)} style={{ left: handle.left, top: handle.top, cursor: handle.cursor }} title="Drag: all corners. Ctrl+drag: only this corner." type="button" />)}
           </div>
-          <div className="floating-toolbar" aria-label="Object tools"><button className={activeTool === 'select' ? 'active' : ''} onClick={() => setActiveTool('select')} title="Select (V)" type="button"><MousePointer2 size={20} /><span>V</span></button><button className={activeTool === 'text' ? 'active' : ''} onClick={() => setActiveTool('text')} title="Text (T)" type="button"><Type size={22} /><span>T</span></button><button className={activeTool === 'box' ? 'active' : ''} onClick={() => setActiveTool('box')} title="Box (B)" type="button"><Square size={20} /><span>B</span></button><button className={activeTool === 'circle' ? 'active' : ''} onClick={() => setActiveTool('circle')} title="Circle (C)" type="button"><CircleIcon size={20} /><span>C</span></button><button className={activeTool === 'shape' ? 'active' : ''} onClick={() => setActiveTool('shape')} title="Shape (P)" type="button"><TriangleIcon size={20} /><span>P</span></button><button className={activeTool === 'pencil' ? 'active' : ''} onClick={() => setActiveTool('pencil')} title="Pencil (D)" type="button"><PenTool size={20} /><span>D</span></button><button onClick={() => fileInputRef.current?.click()} title="Image (I)" type="button"><ImagePlus size={20} /><span>I</span></button></div>
+          <div className="floating-toolbar" aria-label="Object tools"><button className={activeTool === 'select' ? 'active' : ''} disabled={isReadOnly} onClick={() => setActiveTool('select')} title="Select (V)" type="button"><MousePointer2 size={20} /><span>V</span></button><button className={activeTool === 'text' ? 'active' : ''} disabled={isReadOnly} onClick={() => setActiveTool('text')} title="Text (T)" type="button"><Type size={22} /><span>T</span></button><button className={activeTool === 'box' ? 'active' : ''} disabled={isReadOnly} onClick={() => setActiveTool('box')} title="Box (B)" type="button"><Square size={20} /><span>B</span></button><button className={activeTool === 'circle' ? 'active' : ''} disabled={isReadOnly} onClick={() => setActiveTool('circle')} title="Circle (C)" type="button"><CircleIcon size={20} /><span>C</span></button><button className={activeTool === 'shape' ? 'active' : ''} disabled={isReadOnly} onClick={() => setActiveTool('shape')} title="Shape (P)" type="button"><TriangleIcon size={20} /><span>P</span></button><button className={activeTool === 'pencil' ? 'active' : ''} disabled={isReadOnly} onClick={() => setActiveTool('pencil')} title="Pencil (D)" type="button"><PenTool size={20} /><span>D</span></button><button disabled={isReadOnly} onClick={() => fileInputRef.current?.click()} title="Image (I)" type="button"><ImagePlus size={20} /><span>I</span></button></div>
         </div>
       )}
 
@@ -560,4 +616,3 @@ export function EditorWorkspace(props: Props) {
     </section>
   );
 }
-

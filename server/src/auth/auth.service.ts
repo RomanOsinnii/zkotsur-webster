@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { hash, compare } from 'bcryptjs';
 import { createHash, randomBytes } from 'crypto';
 import { createTransport } from 'nodemailer';
 import { UsersService } from '../users/users.service';
@@ -15,6 +14,7 @@ import { UpdateMeDto } from './dto/update-me.dto';
 import { ResendVerificationDto } from './dto/resend-verification.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { AuthTokenPayload } from './auth.types';
+import { hashPassword, verifyPassword } from './password';
 
 @Injectable()
 export class AuthService {
@@ -32,7 +32,7 @@ export class AuthService {
       throw new BadRequestException('Email is already registered');
     }
 
-    const passwordHash = await hash(dto.password, 10);
+    const passwordHash = await hashPassword(dto.password);
     const user = await this.usersService.create({
       name: dto.name,
       email: dto.email,
@@ -85,7 +85,7 @@ export class AuthService {
       throw new BadRequestException('Invalid or expired password reset token');
     }
 
-    const nextPasswordHash = await hash(dto.newPassword, 10);
+    const nextPasswordHash = await hashPassword(dto.newPassword);
     const updatedUser = await this.usersService.updatePassword(user.id, nextPasswordHash);
     if (!updatedUser) {
       throw new BadRequestException('User account no longer exists');
@@ -105,7 +105,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    const passwordMatches = await compare(dto.password, user.passwordHash);
+    const passwordMatches = await verifyPassword(dto.password, user.passwordHash);
     if (!passwordMatches) {
       throw new UnauthorizedException('Invalid email or password');
     }
@@ -169,12 +169,12 @@ export class AuthService {
       throw new UnauthorizedException('User account no longer exists');
     }
 
-    const matches = await compare(dto.currentPassword, user.passwordHash);
+    const matches = await verifyPassword(dto.currentPassword, user.passwordHash);
     if (!matches) {
       throw new UnauthorizedException('Current password is incorrect');
     }
 
-    const nextPasswordHash = await hash(dto.newPassword, 10);
+    const nextPasswordHash = await hashPassword(dto.newPassword);
     await this.usersService.updatePassword(userId, nextPasswordHash);
   }
 

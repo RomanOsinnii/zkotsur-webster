@@ -6,6 +6,7 @@
     "build": "tsc -p tsconfig.json --incremental false",
     "start": "node dist/main.js",
     "start:dev": "nest start --watch",
+    "seed:demo-user": "ts-node src/scripts/seed-demo-user.ts",
     "test": "jest --runInBand"
   },
   "dependencies": {

@@ -1,9 +1,15 @@
 import type React from 'react';
-import { ArrowRight, Circle as CircleIcon, Download, GraduationCap, Grid3X3, Home, ImagePlus, Plus, Shapes, Sparkles, Square, Triangle as TriangleIcon, Type, Upload, UserRound } from 'lucide-react';
+import { ArrowRight, Circle as CircleIcon, Download, GraduationCap, Grid3X3, Home, ImagePlus, Moon, Plus, Shapes, Sparkles, Square, Sun, Triangle as TriangleIcon, Type, Upload, UserRound } from 'lucide-react';
 import { DesignFrame, GalleryTemplate, LayerItem, SidebarPanel } from '../../lib/editorTypes';
 import { ProjectExportFormat, ProjectRecord } from '../../api/projects';
+import { ThemeMode } from '../../lib/theme';
 
 type Props = {
+  isReadOnly: boolean;
+  theme: ThemeMode;
+  toggleTheme: () => void;
+  autosaveLabel: string;
+  saveHint: string;
   isTemplatesMode: boolean;
   isProfileView: boolean;
   sidebarPanel: SidebarPanel;
@@ -12,6 +18,7 @@ type Props = {
   frames: DesignFrame[];
   activeFrameId: string;
   switchFrame: (id: string) => void;
+  viewFrameReadOnly: (id: string) => void;
   getTemplateToneClass: (index: number) => string;
   getTemplatePreviewClass: (frame: DesignFrame, index: number) => string;
   presets: { name: string; description: string; width: number; height: number }[];
@@ -43,6 +50,7 @@ type Props = {
   authStatus: string;
   authError: string;
   canManageSavedProjects: boolean;
+  isProjectShared: boolean;
   projectId: string | null;
   projectName: string;
   setProjectName: (value: string) => void;
@@ -52,6 +60,11 @@ type Props = {
   undoFrame: () => void;
   redoFrame: () => void;
   saveProjectToBackend: (mode: 'save' | 'save-as-new') => Promise<void>;
+  shareProject: () => Promise<void>;
+  disableProjectShare: () => Promise<void>;
+  shareBusy: boolean;
+  shareStatus: string;
+  shareError: string;
   isSavingProject: boolean;
   projectRequestBusy: boolean;
   refreshSavedProjects: () => Promise<void>;
@@ -70,22 +83,25 @@ type Props = {
   deletingProjectId: string | null;
   formatSavedProjectDate: (value: string) => string;
   owlMascot: string;
+  openEditorRoute: (projectId?: string | null) => void;
+  openTemplatesRoute: () => void;
+  openProjectsRoute: () => void;
 };
 
 export function EditorSidebar(props: Props) {
   const {
-    isTemplatesMode, isProfileView, sidebarPanel, handleSidebarSelect, addFrame, frames, activeFrameId, switchFrame,
+    isReadOnly, theme, toggleTheme, autosaveLabel, saveHint, isTemplatesMode, isProfileView, sidebarPanel, handleSidebarSelect, addFrame, frames, activeFrameId, switchFrame, viewFrameReadOnly,
     getTemplateToneClass, getTemplatePreviewClass, presets, deleteSelectedFrame, setWorkspaceMode,
     fileInputRef, addRect, addCircle, addTriangle, addArrow, addHeadingText, addSubheadingText, addBodyText,
     addText, updateFrameBackground, selectedObject, updateFill, fillColor, updateOpacity, opacity,
     activeFrame, layers, selectLayer, toggleLayerVisibility, moveLayer, authUser,
     logoutUser, openAuthPage, authStatus, authError,
-    canManageSavedProjects, projectId, projectName, setProjectName, projectDescription,
+    canManageSavedProjects, isProjectShared, projectId, projectName, setProjectName, projectDescription,
     setProjectDescription, defaultProjectName, undoFrame, redoFrame, saveProjectToBackend,
-    isSavingProject, projectRequestBusy, refreshSavedProjects, savedProjectsLoading, exportProject, exportProjectFromBackend,
+    shareProject, disableProjectShare, shareBusy, shareStatus, shareError, isSavingProject, projectRequestBusy, refreshSavedProjects, savedProjectsLoading, exportProject, exportProjectFromBackend,
     importInputRef, importProject, projectStatus, projectError, savedProjectsError, savedProjects,
     openSavedProject, openingProjectId, deleteSavedProject, deletingProjectId, formatSavedProjectDate,
-    owlMascot
+    owlMascot, openEditorRoute, openTemplatesRoute, openProjectsRoute
   } = props;
 
   const userInitials = authUser
@@ -93,22 +109,31 @@ export function EditorSidebar(props: Props) {
     : 'G';
 
   const openEditorPanel = (panel: SidebarPanel) => {
+    if (panel === 'templates') {
+      if (isReadOnly) {
+        setWorkspaceMode('editor');
+        handleSidebarSelect(panel);
+        return;
+      }
+      openEditorRoute(projectId);
+      return;
+    }
+
     setWorkspaceMode('editor');
     handleSidebarSelect(panel);
   };
 
   const openTemplatesMode = () => {
-    setWorkspaceMode('templates');
-    handleSidebarSelect('templates');
+    openTemplatesRoute();
   };
 
   const openProfileMode = () => {
-    setWorkspaceMode('editor');
-    handleSidebarSelect('account');
+    openProjectsRoute();
   };
 
-  const showEditorPanels = !isTemplatesMode && !isProfileView;
-  const showAccountPanel = !isTemplatesMode && (isProfileView || sidebarPanel === 'account');
+  const showEditorPanels = !isReadOnly && !isTemplatesMode && !isProfileView;
+  const showReadOnlyFramePanel = isReadOnly && !isTemplatesMode && !isProfileView;
+  const showAccountPanel = !isTemplatesMode && (isReadOnly || isProfileView || sidebarPanel === 'account');
   const isEditorHomeActive = !isTemplatesMode && !isProfileView;
 
   return (
@@ -119,6 +144,15 @@ export function EditorSidebar(props: Props) {
           <p className="eyebrow">Webster</p>
           <h1>Design editor</h1>
         </div>
+        <button
+          aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+          className="theme-toggle sidebar-theme-toggle"
+          onClick={toggleTheme}
+          type="button"
+        >
+          {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+          <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
+        </button>
       </div>
 
       <p className="sidebar-nav-label">Workspace</p>
@@ -171,7 +205,24 @@ export function EditorSidebar(props: Props) {
               </div>
               <div className="preset-row">{presets.map((preset) => <button key={preset.name} onClick={() => addFrame(preset)} type="button">{preset.name}</button>)}</div>
               <button className="wide-action muted-action" disabled={frames.length <= 1} onClick={deleteSelectedFrame} title="Delete current frame" type="button">Delete frame</button>
-              <button className="wide-action" onClick={() => setWorkspaceMode('templates')} type="button">Open full template gallery</button>
+              <button className="wide-action" onClick={openTemplatesMode} type="button">Open full template gallery</button>
+            </section>
+          ) : null}
+
+          {showReadOnlyFramePanel ? (
+            <section className="tool-section">
+              <div className="section-heading">
+                <h2>Frames</h2>
+              </div>
+              <p className="panel-caption">Browse the saved frames in this shared project. Viewing is read-only.</p>
+              <div className="template-list">
+                {frames.map((frame, index) => (
+                  <button className={`template-card ${getTemplateToneClass(index)}${frame.id === activeFrameId ? ' active' : ''}`} key={frame.id} onClick={() => viewFrameReadOnly(frame.id)} type="button">
+                    <div className="template-card-copy"><strong>{frame.name}</strong><span>{frame.description}</span><small>{frame.width} x {frame.height}</small></div>
+                    <div aria-hidden className={`template-thumb ${getTemplatePreviewClass(frame, index)}`}><i className="template-thumb-canvas" /><i className="template-thumb-shape template-thumb-shape-main" /><i className="template-thumb-shape template-thumb-shape-accent" /><i className="template-thumb-badge" /></div>
+                  </button>
+                ))}
+              </div>
             </section>
           ) : null}
 
@@ -197,11 +248,15 @@ export function EditorSidebar(props: Props) {
             <section className="tool-section">
               <h2>Account</h2>
               {authUser ? <div className="account-profile-card"><div className="account-avatar" aria-hidden>{userInitials}</div><div className="account-profile-copy"><strong>{authUser.name}</strong><span>{authUser.email}</span></div></div> : <div className="account-profile-card guest"><div className="account-avatar" aria-hidden>{userInitials}</div><div className="account-profile-copy"><strong>Guest mode</strong><span>Log in to unlock backend saves and template management.</span></div></div>}
-              <p className="panel-caption">Profile details are shown in the center page. Project actions stay available here for quick access.</p>
+              <p className="panel-caption">{isReadOnly ? 'This shared project is open in read-only mode.' : 'Profile details are shown in the center page. Project actions stay available here for quick access.'}</p>
+              <p className="project-feedback">{autosaveLabel}</p>
+              {saveHint ? <p className="project-feedback">{saveHint}</p> : null}
 
               <div className="stack-actions">
-                <button className="sidebar-btn-primary" disabled={!canManageSavedProjects || projectRequestBusy} onClick={() => { void saveProjectToBackend('save'); }} type="button">{isSavingProject ? 'Saving...' : 'Save project'}</button>
-                <button className="sidebar-btn-secondary" disabled={!canManageSavedProjects || projectRequestBusy} onClick={() => { void saveProjectToBackend('save-as-new'); }} type="button">Save as new copy</button>
+                <button className="sidebar-btn-primary" disabled={isReadOnly || !canManageSavedProjects || projectRequestBusy} onClick={() => { void saveProjectToBackend('save'); }} type="button">{isSavingProject ? 'Saving...' : 'Save project'}</button>
+                <button className="sidebar-btn-secondary" disabled={isReadOnly || !canManageSavedProjects || projectRequestBusy} onClick={() => { void saveProjectToBackend('save-as-new'); }} type="button">Save as new copy</button>
+                <button className="sidebar-btn-secondary" disabled={isReadOnly || !projectId || !canManageSavedProjects || projectRequestBusy || shareBusy} onClick={() => { void shareProject(); }} title={projectId ? 'Create or copy public share link' : 'Save the project before sharing.'} type="button">{shareBusy ? 'Sharing...' : 'Share'}</button>
+                <button className="sidebar-btn-secondary" disabled={isReadOnly || !isProjectShared || !canManageSavedProjects || shareBusy} onClick={() => { void disableProjectShare(); }} type="button">Disable share</button>
                 <button disabled={projectRequestBusy} onClick={() => { void exportProject(); }} type="button">Export .webster</button>
                 <button disabled={projectRequestBusy} onClick={() => importInputRef.current?.click()} type="button">Import .webster</button>
                 <button className="sidebar-btn-secondary" disabled={!canManageSavedProjects || projectRequestBusy} onClick={() => { void exportProjectFromBackend('json'); }} type="button">Export JSON</button>
@@ -212,6 +267,8 @@ export function EditorSidebar(props: Props) {
               {authUser ? <button className="wide-action sidebar-btn-danger" onClick={logoutUser} type="button">Logout</button> : <button className="wide-action sidebar-btn-secondary" onClick={openAuthPage} type="button">Open login page</button>}
               {projectStatus ? <p className="project-feedback success">{projectStatus}</p> : null}
               {projectError ? <p className="project-feedback error">{projectError}</p> : null}
+              {shareStatus ? <p className="project-feedback success">{shareStatus}</p> : null}
+              {shareError ? <p className="project-feedback error">{shareError}</p> : null}
               {savedProjectsError ? <p className="project-feedback error">{savedProjectsError}</p> : null}
               {authStatus ? <p className="project-feedback success">{authStatus}</p> : null}
               {authError ? <p className="project-feedback error">{authError}</p> : null}
@@ -224,4 +281,3 @@ export function EditorSidebar(props: Props) {
     </aside>
   );
 }
-
