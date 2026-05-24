@@ -21,6 +21,10 @@ export type ProjectShareState = {
   sharePath: string | null;
 };
 
+export type ProjectShareDetails = ProjectShareState & {
+  visitors: { username: string; visitedAt: string }[];
+};
+
 export type PublicProjectView = Pick<ProjectEntity, 'id' | 'name' | 'description' | 'data' | 'updatedAt'> & {
   shareSlug: string;
   readOnly: true;
@@ -121,13 +125,31 @@ export class ProjectsService {
     await this.projectsRepository.save(project);
   }
 
-  async findSharedProject(slug: string): Promise<PublicProjectView> {
+  async getShareDetails(id: string, ownerId: string): Promise<ProjectShareDetails> {
+    const project = await this.findOne(id, ownerId);
+    return {
+      isPublic: project.isPublic,
+      shareSlug: project.shareSlug,
+      sharePath: project.shareSlug ? `/shared/${project.shareSlug}` : null,
+      visitors: Array.isArray(project.shareVisitors) ? project.shareVisitors : []
+    };
+  }
+
+  async findSharedProject(slug: string, viewerName?: string): Promise<PublicProjectView> {
     const project = await this.projectsRepository.findOne({
       where: { shareSlug: slug, isPublic: true }
     });
 
     if (!project) {
       throw new NotFoundException('Shared project link is missing or no longer available.');
+    }
+
+    const normalizedViewer = viewerName?.trim();
+    if (normalizedViewer) {
+      const visitors = Array.isArray(project.shareVisitors) ? project.shareVisitors : [];
+      const withoutExisting = visitors.filter((entry) => entry.username !== normalizedViewer);
+      project.shareVisitors = [{ username: normalizedViewer.slice(0, 60), visitedAt: new Date().toISOString() }, ...withoutExisting].slice(0, 100);
+      await this.projectsRepository.save(project);
     }
 
     return {
@@ -139,6 +161,24 @@ export class ProjectsService {
       readOnly: true,
       updatedAt: project.updatedAt
     };
+  }
+
+  async cloneSharedProject(slug: string, ownerId: string): Promise<ProjectEntity> {
+    const source = await this.projectsRepository.findOne({
+      where: { shareSlug: slug, isPublic: true }
+    });
+    if (!source) {
+      throw new NotFoundException('Shared project link is missing or no longer available.');
+    }
+
+    const clone = this.projectsRepository.create({
+      name: `${source.name} (Draft)`,
+      description: source.description,
+      data: source.data,
+      owner: { id: ownerId } as UserEntity
+    });
+
+    return this.projectsRepository.save(clone);
   }
 
   async exportProject(id: string, ownerId: string, format: ProjectExportFormat): Promise<ProjectExportFile> {

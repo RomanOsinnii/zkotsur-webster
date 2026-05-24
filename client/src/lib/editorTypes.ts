@@ -72,8 +72,21 @@ export type WebsterObject = FabricObject & {
 };
 
 export type FrameHistory = {
-  undo: Record<string, unknown>[];
-  redo: Record<string, unknown>[];
+  branches: HistoryBranch[];
+  activeBranchId: string;
+  activeIndex: number;
+};
+
+export type HistoryBranch = {
+  id: string;
+  name: string;
+  createdAt: string;
+  steps: HistoryStep[];
+};
+
+export type HistoryStep = {
+  json: Record<string, unknown>;
+  changedAt: string;
 };
 
 export type SnapLine = {
@@ -122,7 +135,8 @@ export const galleryTemplates: GalleryTemplate[] = [
 ];
 
 export const exportProperties = ['objectId', 'objectName', 'cornerRadii', 'shapeKind', 'fillLayers'];
-export const maxHistorySteps = 6;
+export const maxHistorySteps = 150;
+export const maxHistoryBranches = 5;
 export const snapThreshold = 8;
 export const defaultProjectName = 'Untitled project';
 

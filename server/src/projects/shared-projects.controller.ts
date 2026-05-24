@@ -1,4 +1,4 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiNotFoundResponse,
@@ -22,7 +22,10 @@ export class SharedProjectsController {
   @ApiOkResponse({ type: PublicProjectResponseDto })
   @ApiBadRequestResponse({ description: 'Invalid share request', type: ApiErrorResponseDto })
   @ApiNotFoundResponse({ description: 'Shared project not found or disabled' })
-  getSharedProject(@Param('slug') slug: string): Promise<PublicProjectView> {
-    return this.projectsService.findSharedProject(slug);
+  getSharedProject(
+    @Param('slug') slug: string,
+    @Query('viewer') viewer?: string
+  ): Promise<PublicProjectView> {
+    return this.projectsService.findSharedProject(slug, viewer);
   }
 }

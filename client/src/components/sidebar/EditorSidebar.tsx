@@ -59,8 +59,10 @@ type Props = {
   defaultProjectName: string;
   undoFrame: () => void;
   redoFrame: () => void;
-  saveProjectToBackend: (mode: 'save' | 'save-as-new') => Promise<void>;
+  historyBranches: { id: string; name: string; steps: number; isActive: boolean }[];
+  switchHistoryBranch: (branchId: string) => void;
   shareProject: () => Promise<void>;
+  copySharedProjectToDrafts: () => Promise<void>;
   disableProjectShare: () => Promise<void>;
   shareBusy: boolean;
   shareStatus: string;
@@ -97,8 +99,8 @@ export function EditorSidebar(props: Props) {
     activeFrame, layers, selectLayer, toggleLayerVisibility, moveLayer, authUser,
     logoutUser, openAuthPage, authStatus, authError,
     canManageSavedProjects, isProjectShared, projectId, projectName, setProjectName, projectDescription,
-    setProjectDescription, defaultProjectName, undoFrame, redoFrame, saveProjectToBackend,
-    shareProject, disableProjectShare, shareBusy, shareStatus, shareError, isSavingProject, projectRequestBusy, refreshSavedProjects, savedProjectsLoading, exportProject, exportProjectFromBackend,
+    setProjectDescription, defaultProjectName, undoFrame, redoFrame, historyBranches, switchHistoryBranch,
+    shareProject, copySharedProjectToDrafts, disableProjectShare, shareBusy, shareStatus, shareError, isSavingProject, projectRequestBusy, refreshSavedProjects, savedProjectsLoading, exportProject, exportProjectFromBackend,
     importInputRef, importProject, projectStatus, projectError, savedProjectsError, savedProjects,
     openSavedProject, openingProjectId, deleteSavedProject, deletingProjectId, formatSavedProjectDate,
     owlMascot, openEditorRoute, openTemplatesRoute, openProjectsRoute
@@ -253,9 +255,8 @@ export function EditorSidebar(props: Props) {
               {saveHint ? <p className="project-feedback">{saveHint}</p> : null}
 
               <div className="stack-actions">
-                <button className="sidebar-btn-primary" disabled={isReadOnly || !canManageSavedProjects || projectRequestBusy} onClick={() => { void saveProjectToBackend('save'); }} type="button">{isSavingProject ? 'Saving...' : 'Save project'}</button>
-                <button className="sidebar-btn-secondary" disabled={isReadOnly || !canManageSavedProjects || projectRequestBusy} onClick={() => { void saveProjectToBackend('save-as-new'); }} type="button">Save as new copy</button>
                 <button className="sidebar-btn-secondary" disabled={isReadOnly || !projectId || !canManageSavedProjects || projectRequestBusy || shareBusy} onClick={() => { void shareProject(); }} title={projectId ? 'Create or copy public share link' : 'Save the project before sharing.'} type="button">{shareBusy ? 'Sharing...' : 'Share'}</button>
+                <button className="sidebar-btn-secondary" disabled={!isReadOnly || !canManageSavedProjects || shareBusy} onClick={() => { void copySharedProjectToDrafts(); }} type="button">Copy to Drafts</button>
                 <button className="sidebar-btn-secondary" disabled={isReadOnly || !isProjectShared || !canManageSavedProjects || shareBusy} onClick={() => { void disableProjectShare(); }} type="button">Disable share</button>
                 <button disabled={projectRequestBusy} onClick={() => { void exportProject(); }} type="button">Export .webster</button>
                 <button disabled={projectRequestBusy} onClick={() => importInputRef.current?.click()} type="button">Import .webster</button>
@@ -263,6 +264,19 @@ export function EditorSidebar(props: Props) {
                 <button className="sidebar-btn-secondary" disabled={!canManageSavedProjects || projectRequestBusy} onClick={() => { void exportProjectFromBackend('png'); }} type="button">Export PNG</button>
                 <button className="sidebar-btn-secondary" disabled={!canManageSavedProjects || projectRequestBusy} onClick={() => { void exportProjectFromBackend('pdf'); }} type="button">Export PDF</button>
               </div>
+
+              {!isReadOnly ? <div className="stack-actions">
+                {historyBranches.map((branch) => (
+                  <button
+                    className={branch.isActive ? 'sidebar-btn-primary' : 'sidebar-btn-secondary'}
+                    key={branch.id}
+                    onClick={() => switchHistoryBranch(branch.id)}
+                    type="button"
+                  >
+                    {branch.name} ({branch.steps}/150)
+                  </button>
+                ))}
+              </div> : null}
 
               {authUser ? <button className="wide-action sidebar-btn-danger" onClick={logoutUser} type="button">Logout</button> : <button className="wide-action sidebar-btn-secondary" onClick={openAuthPage} type="button">Open login page</button>}
               {projectStatus ? <p className="project-feedback success">{projectStatus}</p> : null}

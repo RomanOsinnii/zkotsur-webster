@@ -139,7 +139,7 @@ Notes:
 
 ```bash
 cp .env.example .env
-docker compose up -d db
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 ```
 
 ### 2. Start backend

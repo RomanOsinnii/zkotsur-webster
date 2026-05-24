@@ -168,7 +168,7 @@ function parsePasswordResetToken(search: string): string | null {
 
 function resolvePostLoginPath(returnPath: string | null): string {
   if (!returnPath || returnPath === '/login') {
-    return '/editor';
+    return '/templates';
   }
 
   return returnPath;
@@ -305,6 +305,7 @@ export function EditorApp({ theme, toggleTheme }: Props) {
   const lastPersistedSignatureRef = useRef<string | null>(null);
   const autosaveTimerRef = useRef<number | null>(null);
   const loadedSharedSlugRef = useRef<string | null>(null);
+  const initializedProjectRef = useRef<string | null>(null);
   const authReturnPath = useMemo(() => parseAuthReturnPath(location.search), [location.search]);
   const emailVerificationToken = useMemo(() => parseEmailVerificationToken(location.search), [location.search]);
   const isAuthRoute = location.pathname === '/login';
@@ -316,6 +317,10 @@ export function EditorApp({ theme, toggleTheme }: Props) {
   const [shareBusy, setShareBusy] = useState(false);
   const [shareStatus, setShareStatus] = useState('');
   const [shareError, setShareError] = useState('');
+  const [shareVisitors, setShareVisitors] = useState<Array<{ username: string; visitedAt: string }>>([]);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [shareModalUrl, setShareModalUrl] = useState('');
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [sharedProjectLoading, setSharedProjectLoading] = useState(false);
   const [sharedProjectUnavailable, setSharedProjectUnavailable] = useState(false);
   const [projectHydrating, setProjectHydrating] = useState(false);
@@ -625,7 +630,9 @@ export function EditorApp({ theme, toggleTheme }: Props) {
       setSharedProjectUnavailable(false);
       setSharedProjectLoading(true);
       setProjectHydrating(true);
-      const opened = await projects.openSharedProject(routeShareSlug);
+      const viewerName = (authUser?.name?.trim() || localStorage.getItem('webster-share-viewer-name') || `Guest-${Math.floor(Math.random() * 10000)}`).slice(0, 60);
+      localStorage.setItem('webster-share-viewer-name', viewerName);
+      const opened = await projects.openSharedProject(routeShareSlug, viewerName);
       if (cancelled) {
         return;
       }
@@ -665,7 +672,7 @@ export function EditorApp({ theme, toggleTheme }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [isSharedRoute, routeShareSlug]);
+  }, [authUser?.name, isSharedRoute, routeShareSlug]);
 
   useEffect(() => {
     if (!routeProjectId || !location.pathname.startsWith('/editor/')) {
@@ -714,6 +721,28 @@ export function EditorApp({ theme, toggleTheme }: Props) {
     projectId,
     routeProjectId
   ]);
+
+  useEffect(() => {
+    if (routeProjectId !== initializedProjectRef.current) {
+      initializedProjectRef.current = null;
+    }
+  }, [routeProjectId]);
+
+  useEffect(() => {
+    if (isReadOnly || projectHydrating) {
+      return;
+    }
+    if (!routeProjectId || routeProjectId !== projectId || frames.length === 0) {
+      return;
+    }
+    if (initializedProjectRef.current === routeProjectId) {
+      return;
+    }
+
+    initializedProjectRef.current = routeProjectId;
+    setActiveFrameId(frames[0].id);
+    setCanvasReloadNonce((value) => value + 1);
+  }, [frames, isReadOnly, projectHydrating, projectId, routeProjectId, setActiveFrameId]);
 
   useEffect(() => {
     if (lastPersistedSignatureRef.current === null) {
@@ -766,7 +795,25 @@ export function EditorApp({ theme, toggleTheme }: Props) {
 
     setSaveState('dirty');
 
-    if (!projectId || !projectName.trim()) {
+    if (!projectName.trim()) {
+      return;
+    }
+
+    if (!projectId) {
+      autosaveTimerRef.current = window.setTimeout(() => {
+        void (async () => {
+          setSaveState('autosave-saving');
+          const savedProjectId = await projects.saveProjectToBackend('save-as-new');
+          if (!savedProjectId) {
+            setSaveState('autosave-failed');
+            return;
+          }
+          lastPersistedSignatureRef.current = createProjectSignature(framesRef.current, projectName, projectDescription);
+          setHasUnsavedChanges(false);
+          setSaveState('saved');
+          navigate(`/editor/${savedProjectId}`, { replace: true });
+        })();
+      }, 500);
       return;
     }
 
@@ -784,7 +831,7 @@ export function EditorApp({ theme, toggleTheme }: Props) {
         setSaveState('saved');
         setProjectError('');
       })();
-    }, 3000);
+    }, 500);
 
     return () => {
       if (autosaveTimerRef.current !== null) {
@@ -799,10 +846,12 @@ export function EditorApp({ theme, toggleTheme }: Props) {
     isAuthRoute,
     isReadOnly,
     isTemplatesMode,
+    navigate,
     projectHydrating,
     projectDescription,
     projectId,
     projectName,
+    projects,
     setProjectError
   ]);
 
@@ -831,7 +880,7 @@ export function EditorApp({ theme, toggleTheme }: Props) {
               : projectId
                 ? 'Saved'
                 : 'Unsaved changes';
-  const saveHint = !isReadOnly && authUser && !projectId ? 'Save once to enable autosave' : '';
+  const saveHint = !isReadOnly && authUser && !projectId ? 'Draft will be created automatically' : '';
 
   const copyShareLink = useCallback(async (shareSlug: string) => {
     const url = buildProjectShareUrl(shareSlug);
@@ -854,10 +903,15 @@ export function EditorApp({ theme, toggleTheme }: Props) {
       return null;
     }
 
-    if (!projectId) {
-      setShareStatus('');
-      setShareError('Save the project before sharing.');
-      return null;
+    let ensuredProjectId = projectId;
+    if (!ensuredProjectId) {
+      const savedProjectId = await projects.saveProjectToBackend('save-as-new');
+      if (!savedProjectId) {
+        setShareStatus('');
+        setShareError('Could not create draft before sharing.');
+        return null;
+      }
+      ensuredProjectId = savedProjectId;
     }
 
     if (currentSavedProject?.shareSlug) {
@@ -892,8 +946,16 @@ export function EditorApp({ theme, toggleTheme }: Props) {
   }, [copyShareLink, currentSavedProject?.shareSlug, isReadOnly, projectId, projects, shareBusy]);
 
   const shareCurrentProject = useCallback(async () => {
-    await ensureProjectShareUrl({ copy: true });
-  }, [ensureProjectShareUrl]);
+    const shareUrl = await ensureProjectShareUrl();
+    if (!shareUrl || !projectId) {
+      return;
+    }
+
+    const details = await projects.getProjectShareDetails(projectId);
+    setShareVisitors(details.visitors);
+    setShareModalUrl(shareUrl);
+    setShareModalOpen(true);
+  }, [ensureProjectShareUrl, projectId, projects]);
 
   const shareProjectToSocial = useCallback(async (platform: SocialPlatform) => {
     const shareUrl = await ensureProjectShareUrl();
@@ -1023,21 +1085,18 @@ export function EditorApp({ theme, toggleTheme }: Props) {
     navigate('/login', { replace: true });
   }, [auth, navigate]);
 
-  const saveProjectToBackendAndRoute = useCallback(async (mode: 'save' | 'save-as-new') => {
-    if (isReadOnly) {
-      setProjectError('Shared projects are read-only.');
-      setSaveState('manual-failed');
+  const copySharedProjectToDrafts = useCallback(async () => {
+    if (!routeShareSlug) {
       return;
     }
-    setSaveState('manual-saving');
-    const savedProjectId = await projects.saveProjectToBackend(mode);
-    if (savedProjectId) {
-      setSaveState('saved');
-      navigate(`/editor/${savedProjectId}`, { replace: mode === 'save' && projectId === savedProjectId });
-    } else {
-      setSaveState('manual-failed');
+    try {
+      const clone = await projects.cloneSharedProjectToDrafts(routeShareSlug);
+      await projects.refreshSavedProjects(true);
+      navigate(`/editor/${clone.id}`);
+    } catch (error) {
+      setProjectError(getErrorMessage(error, 'Could not copy shared project to Drafts.'));
     }
-  }, [isReadOnly, navigate, projectId, projects, setProjectError]);
+  }, [navigate, projects, routeShareSlug, setProjectError]);
 
   const openSavedProjectAndRoute = useCallback(async (id: string) => {
     const opened = await projects.openSavedProject(id);
@@ -1194,8 +1253,10 @@ export function EditorApp({ theme, toggleTheme }: Props) {
         defaultProjectName={defaultProjectName}
         undoFrame={history.undoFrame}
         redoFrame={history.redoFrame}
-        saveProjectToBackend={saveProjectToBackendAndRoute}
+        historyBranches={history.listBranches()}
+        switchHistoryBranch={history.switchBranch}
         shareProject={shareCurrentProject}
+        copySharedProjectToDrafts={copySharedProjectToDrafts}
         disableProjectShare={disableSharedProject}
         shareBusy={shareBusy}
         shareStatus={shareStatus}
@@ -1294,8 +1355,6 @@ export function EditorApp({ theme, toggleTheme }: Props) {
         saveHint={saveHint}
         projectStatus={projectStatus}
         projectRequestBusy={projects.projectRequestBusy}
-        saveProject={() => { void saveProjectToBackendAndRoute('save'); }}
-        isSavingProject={isSavingProject}
         openEditorWorkspace={() => openEditorRoute(projectId)}
         openProjectsWorkspace={() => openProjectsRoute('/projects')}
         isProjectsView={!isTemplatesMode && sidebarPanel === 'account'}
@@ -1312,6 +1371,24 @@ export function EditorApp({ theme, toggleTheme }: Props) {
             .then(() => refreshTemplates(false));
         }}
         shareCurrentProject={() => { void shareCurrentProject(); }}
+        openHistoryModal={() => setHistoryModalOpen(true)}
+        shareModalOpen={shareModalOpen}
+        shareModalUrl={shareModalUrl}
+        shareVisitors={shareVisitors}
+        closeShareModal={() => setShareModalOpen(false)}
+        copyShareModalLink={async () => {
+          const slug = shareModalUrl.split('/shared/')[1];
+          if (!slug) {
+            return;
+          }
+          await copyShareLink(slug);
+        }}
+        historyModalOpen={historyModalOpen}
+        closeHistoryModal={() => setHistoryModalOpen(false)}
+        historyBranches={history.listBranches()}
+        historySteps={history.listActiveBranchSteps()}
+        switchHistoryBranch={history.switchBranch}
+        restoreHistoryStep={(index) => history.restoreHistoryStep(index)}
         shareToLinkedIn={() => { void shareProjectToSocial('linkedin'); }}
         shareToFacebook={() => { void shareProjectToSocial('facebook'); }}
         shareToX={() => { void shareProjectToSocial('x'); }}

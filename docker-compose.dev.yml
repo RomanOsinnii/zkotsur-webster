@@ -1,0 +1,6 @@
+services:
+  server:
+    profiles: ["full"]
+
+  client:
+    profiles: ["full"]

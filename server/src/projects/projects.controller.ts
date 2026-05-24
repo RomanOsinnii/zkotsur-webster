@@ -16,6 +16,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthTokenPayload } from '../auth/auth.types';
 import { ApiErrorResponseDto } from '../common/dto/api-error-response.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
+import { ProjectShareDetailsResponseDto } from './dto/project-share-details-response.dto';
 import { ProjectShareResponseDto } from './dto/project-share-response.dto';
 import { ProjectResponseDto } from './dto/project-response.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
@@ -96,6 +97,16 @@ export class ProjectsController {
     return this.projectsService.enableShare(id, user.sub);
   }
 
+  @Get(':id/share')
+  @ApiOperation({ summary: 'Get share details and recent visitors for a project owned by the current user' })
+  @ApiParam({ name: 'id', description: 'Project id in UUID format' })
+  @ApiOkResponse({ type: ProjectShareDetailsResponseDto })
+  @ApiBadRequestResponse({ description: 'Invalid UUID', type: ApiErrorResponseDto })
+  @ApiNotFoundResponse({ description: 'Project not found' })
+  getShareDetails(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthTokenPayload): Promise<ProjectShareDetailsResponseDto> {
+    return this.projectsService.getShareDetails(id, user.sub);
+  }
+
   @Delete(':id/share')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Disable public sharing for a project owned by the current user' })
@@ -105,6 +116,15 @@ export class ProjectsController {
   @ApiNotFoundResponse({ description: 'Project not found' })
   async disableShare(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthTokenPayload): Promise<void> {
     await this.projectsService.disableShare(id, user.sub);
+  }
+
+  @Post('shared/:slug/clone')
+  @ApiOperation({ summary: 'Clone a shared read-only project into my Drafts' })
+  @ApiParam({ name: 'slug', description: 'Public project share slug' })
+  @ApiCreatedResponse({ type: ProjectResponseDto })
+  @ApiNotFoundResponse({ description: 'Shared project not found or disabled' })
+  cloneSharedProject(@Param('slug') slug: string, @CurrentUser() user: AuthTokenPayload): Promise<ProjectEntity> {
+    return this.projectsService.cloneSharedProject(slug, user.sub);
   }
 
   @Get(':id/export/:format')

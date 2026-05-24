@@ -4,6 +4,7 @@ import {
   CornerHandle, DesignFrame, FillLayer, FillMode, FrameHistory,
   GradientStopItem, LayerItem, ResizeHandle, SnapLine, ToolMode, WebsterObject
 } from '../lib/editorTypes';
+import { createId } from '../lib/editorTypes';
 import {
   addStarterObjects, configureSelectionOutline, ensureObjectIds,
   getCanvasPointer, getCornerHandles, getFrameBackgroundFill,
@@ -153,9 +154,16 @@ export function useCanvasSetup({
       sync();
       persistFrameJson(frame.id, toCanvasJson(canvas));
       historyRef.current[frame.id] = {
-        undo: [toCanvasJson(canvas)],
-        redo: []
+        branches: [{
+          id: createId(),
+          name: 'Main',
+          createdAt: new Date().toISOString(),
+          steps: [{ json: toCanvasJson(canvas), changedAt: new Date().toISOString() }]
+        }],
+        activeBranchId: '',
+        activeIndex: 0
       };
+      historyRef.current[frame.id].activeBranchId = historyRef.current[frame.id].branches[0].id;
       canvas.requestRenderAll();
     }
 
@@ -164,9 +172,17 @@ export function useCanvasSetup({
     canvas.on('selection:cleared', sync);
     canvas.on('object:added', ({ target }) => {
       configureSelectionOutline(target as WebsterObject | undefined);
+      if (!isReadOnly && !isProjectHydrating) {
+        saveCurrentFrame(true);
+      }
     });
     canvas.on('object:added', sync);
-    canvas.on('object:removed', sync);
+    canvas.on('object:removed', () => {
+      sync();
+      if (!isReadOnly && !isProjectHydrating) {
+        saveCurrentFrame(true);
+      }
+    });
     canvas.on('mouse:down', (event) => {
       const pointerEvent = event.e as MouseEvent | undefined;
       const tool = activeToolRef.current;
@@ -229,6 +245,11 @@ export function useCanvasSetup({
 
       createdPath.objectName = 'Pencil stroke';
       createdPath.objectId = createdPath.objectId ?? `stroke-${Date.now()}`;
+      sync();
+      saveCurrentFrame(true);
+    });
+    canvas.on('text:changed', () => {
+      if (isReadOnly) return;
       sync();
       saveCurrentFrame(true);
     });

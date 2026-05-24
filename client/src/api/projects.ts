@@ -26,6 +26,10 @@ export type ProjectShareRecord = {
   sharePath: string | null;
 };
 
+export type ProjectShareDetailsRecord = ProjectShareRecord & {
+  visitors: { username: string; visitedAt: string }[];
+};
+
 export type PublicProjectRecord = {
   id: string;
   name: string;
@@ -87,8 +91,17 @@ export function disableProjectShare(id: string) {
   }, { auth: true });
 }
 
-export function getSharedProject(slug: string) {
-  return requestJson<PublicProjectRecord>(`${projectsBasePath}/shared/${slug}`);
+export function getProjectShareDetails(id: string) {
+  return requestJson<ProjectShareDetailsRecord>(`${projectsBasePath}/${id}/share`, undefined, { auth: true });
+}
+
+export function getSharedProject(slug: string, viewer?: string) {
+  const query = viewer?.trim() ? `?viewer=${encodeURIComponent(viewer.trim())}` : '';
+  return requestJson<PublicProjectRecord>(`${projectsBasePath}/shared/${slug}${query}`);
+}
+
+export function cloneSharedProject(slug: string) {
+  return requestJson<ProjectRecord>(`${projectsBasePath}/shared/${slug}/clone`, { method: 'POST' }, { auth: true });
 }
 
 export async function exportProjectFile(id: string, format: ProjectExportFormat): Promise<ExportedProjectFile> {

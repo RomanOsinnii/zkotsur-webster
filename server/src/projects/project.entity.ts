@@ -21,6 +21,9 @@ export class ProjectEntity {
   @Column({ type: 'varchar', length: 64, nullable: true, unique: true })
   shareSlug!: string | null;
 
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  shareVisitors!: { username: string; visitedAt: string }[];
+
   @Column({ type: 'timestamp', nullable: true })
   lastOpenedAt!: Date | null;
 

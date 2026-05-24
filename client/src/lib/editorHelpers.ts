@@ -539,23 +539,24 @@ function normalizeCanvasObject(entry: Record<string, unknown>): Record<string, u
       .map((child) => normalizeCanvasObject(child));
   }
 
-  if (isRecord(nextEntry.fill)) {
-    nextEntry.fill = getSerializableFillValue(nextEntry);
+  const safeFill = toSerializableFill(nextEntry);
+  if (safeFill !== null) {
+    nextEntry.fill = safeFill;
   }
 
   return nextEntry;
 }
 
-function getSerializableFillValue(entry: Record<string, unknown>): string {
+function toSerializableFill(entry: Record<string, unknown>): string | null {
   const fillLayers = Array.isArray(entry.fillLayers) ? entry.fillLayers.filter(isRecord) : [];
   const firstLayer = fillLayers[0];
-
   if (firstLayer) {
     const layerColor = typeof firstLayer.color === 'string' ? firstLayer.color : '#1f2937';
     const layerOpacity = clampOpacity(typeof firstLayer.opacity === 'number' ? firstLayer.opacity : Number(firstLayer.opacity ?? 1));
 
     if (firstLayer.mode === 'gradient' && Array.isArray(firstLayer.stops)) {
-      const firstStop = firstLayer.stops.find(isRecord);
+      const gradientStops = firstLayer.stops.filter(isRecord);
+      const firstStop = gradientStops[0];
       if (firstStop) {
         const stopColor = typeof firstStop.color === 'string' ? firstStop.color : layerColor;
         const stopOpacity = clampOpacity(typeof firstStop.opacity === 'number' ? firstStop.opacity : Number(firstStop.opacity ?? layerOpacity));
@@ -566,7 +567,19 @@ function getSerializableFillValue(entry: Record<string, unknown>): string {
     return colorWithOpacity(layerColor, layerOpacity);
   }
 
-  return '#1f2937';
+  const fill = entry.fill;
+  if (typeof fill === 'string') {
+    return fill;
+  }
+
+  if (isRecord(fill) && Array.isArray(fill.colorStops)) {
+    const firstStop = fill.colorStops.find(isRecord);
+    if (firstStop && typeof firstStop.color === 'string') {
+      return firstStop.color;
+    }
+  }
+
+  return null;
 }
 
 export function normalizeGradientStops(stops: unknown, backgroundColor: string) {

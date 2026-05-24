@@ -332,7 +332,8 @@ export function useObjectActions({
     reader.onload = async () => {
       const canvas = fabricCanvasRef.current;
       if (!canvas || typeof reader.result !== 'string') return;
-      const image = (await FabricImage.fromURL(reader.result)) as WebsterObject;
+      const optimizedImageDataUrl = await optimizeImageDataUrl(reader.result);
+      const image = (await FabricImage.fromURL(optimizedImageDataUrl)) as WebsterObject;
       image.scaleToWidth(420);
       image.set({ left: 120, top: 160 });
       addObject(image, 'Image');
@@ -340,6 +341,31 @@ export function useObjectActions({
     reader.readAsDataURL(file);
     event.target.value = '';
   };
+
+  const optimizeImageDataUrl = (dataUrl: string): Promise<string> => new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const maxSide = 1600;
+      const width = img.naturalWidth;
+      const height = img.naturalHeight;
+      const scale = Math.min(1, maxSide / Math.max(width, height));
+      const targetWidth = Math.max(1, Math.round(width * scale));
+      const targetHeight = Math.max(1, Math.round(height * scale));
+      const offscreen = document.createElement('canvas');
+      offscreen.width = targetWidth;
+      offscreen.height = targetHeight;
+      const context = offscreen.getContext('2d');
+      if (!context) {
+        resolve(dataUrl);
+        return;
+      }
+
+      context.drawImage(img, 0, 0, targetWidth, targetHeight);
+      resolve(offscreen.toDataURL('image/jpeg', 0.82));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
 
   const selectFillLayer = (layer: FillLayer) => {
     setActiveFillLayerId(layer.id);

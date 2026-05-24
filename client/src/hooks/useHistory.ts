@@ -1,6 +1,6 @@
 import { MutableRefObject } from 'react';
 import { Canvas } from 'fabric';
-import { CornerHandle, DesignFrame, FrameHistory, LayerItem, ResizeHandle, WebsterObject, maxHistorySteps } from '../lib/editorTypes';
+import { CornerHandle, DesignFrame, FrameHistory, LayerItem, ResizeHandle, WebsterObject, createId, maxHistoryBranches, maxHistorySteps } from '../lib/editorTypes';
 import { ensureObjectIds, getLayers, toCanvasJson } from '../lib/editorHelpers';
 
 interface Params {
@@ -30,12 +30,51 @@ export function useHistory({
   };
 
   const pushHistory = (frameId: string, json: Record<string, unknown>) => {
-    const current = historyRef.current[frameId] ?? { undo: [], redo: [] };
-    const last = current.undo[current.undo.length - 1];
-    if (last && JSON.stringify(last) === JSON.stringify(json)) return;
+    const historyStep = { json, changedAt: new Date().toISOString() };
+    const current = historyRef.current[frameId] ?? {
+      branches: [{
+        id: createId(),
+        name: 'Main',
+        createdAt: new Date().toISOString(),
+        steps: []
+      }],
+      activeBranchId: '',
+      activeIndex: -1
+    };
+    if (!current.activeBranchId) {
+      current.activeBranchId = current.branches[0].id;
+    }
+
+    const branchIndex = current.branches.findIndex((branch) => branch.id === current.activeBranchId);
+    const activeBranch = current.branches[Math.max(0, branchIndex)];
+    if (current.activeIndex < activeBranch.steps.length - 1) {
+      const branchId = createId();
+      const branched = {
+        id: branchId,
+        name: `Branch ${current.branches.length + 1}`,
+        createdAt: new Date().toISOString(),
+        steps: [...activeBranch.steps.slice(0, current.activeIndex + 1), historyStep].slice(-maxHistorySteps)
+      };
+      const nextBranches = [...current.branches, branched];
+      while (nextBranches.length > maxHistoryBranches) {
+        const removableIndex = nextBranches.findIndex((branch) => branch.id !== branchId);
+        if (removableIndex < 0) break;
+        nextBranches.splice(removableIndex, 1);
+      }
+      historyRef.current[frameId] = {
+        branches: nextBranches,
+        activeBranchId: branchId,
+        activeIndex: branched.steps.length - 1
+      };
+      return;
+    }
+
+    const nextSteps = [...activeBranch.steps, historyStep].slice(-maxHistorySteps);
+    const nextActiveIndex = nextSteps.length - 1;
     historyRef.current[frameId] = {
-      undo: [...current.undo, json].slice(-maxHistorySteps),
-      redo: []
+      ...current,
+      branches: current.branches.map((branch) => branch.id === activeBranch.id ? { ...branch, steps: nextSteps } : branch),
+      activeIndex: nextActiveIndex
     };
   };
 
@@ -66,26 +105,76 @@ export function useHistory({
 
   const undoFrame = () => {
     const history = historyRef.current[activeFrameId];
-    if (!history || history.undo.length <= 1) return;
-    const current = history.undo[history.undo.length - 1];
-    const previous = history.undo[history.undo.length - 2];
-    historyRef.current[activeFrameId] = {
-      undo: history.undo.slice(0, -1),
-      redo: [current, ...history.redo].slice(0, 5)
-    };
+    if (!history || history.activeIndex <= 0) return;
+    const branch = history.branches.find((item) => item.id === history.activeBranchId);
+    if (!branch) return;
+    const previous = branch.steps[history.activeIndex - 1]?.json;
+    if (!previous) return;
+    historyRef.current[activeFrameId] = { ...history, activeIndex: history.activeIndex - 1 };
     void restoreFrameJson(previous);
   };
 
   const redoFrame = () => {
     const history = historyRef.current[activeFrameId];
-    if (!history || history.redo.length === 0) return;
-    const next = history.redo[0];
-    historyRef.current[activeFrameId] = {
-      undo: [...history.undo, next].slice(-maxHistorySteps),
-      redo: history.redo.slice(1)
-    };
+    if (!history) return;
+    const branch = history.branches.find((item) => item.id === history.activeBranchId);
+    if (!branch || history.activeIndex >= branch.steps.length - 1) return;
+    const next = branch.steps[history.activeIndex + 1]?.json;
+    if (!next) return;
+    historyRef.current[activeFrameId] = { ...history, activeIndex: history.activeIndex + 1 };
     void restoreFrameJson(next);
   };
 
-  return { persistFrameJson, pushHistory, saveCurrentFrame, restoreFrameJson, undoFrame, redoFrame };
+  const listBranches = () => {
+    const history = historyRef.current[activeFrameId];
+    if (!history) return [];
+    return history.branches.map((branch) => ({
+      id: branch.id,
+      name: branch.name,
+      steps: branch.steps.length,
+      isActive: branch.id === history.activeBranchId
+    }));
+  };
+
+  const switchBranch = (branchId: string) => {
+    const history = historyRef.current[activeFrameId];
+    if (!history) return;
+    const branch = history.branches.find((item) => item.id === branchId);
+    if (!branch || branch.steps.length === 0) return;
+    historyRef.current[activeFrameId] = {
+      ...history,
+      activeBranchId: branchId,
+      activeIndex: branch.steps.length - 1
+    };
+    void restoreFrameJson(branch.steps[branch.steps.length - 1].json);
+  };
+
+  const listActiveBranchSteps = () => {
+    const history = historyRef.current[activeFrameId];
+    if (!history) return [];
+    const branch = history.branches.find((item) => item.id === history.activeBranchId);
+    if (!branch) return [];
+    return branch.steps.map((step, index) => ({
+      index,
+      label: `Step ${index + 1}`,
+      changedAt: step.changedAt,
+      isActive: index === history.activeIndex
+    }));
+  };
+
+  const restoreHistoryStep = (stepIndex: number) => {
+    const history = historyRef.current[activeFrameId];
+    if (!history) return;
+    const branch = history.branches.find((item) => item.id === history.activeBranchId);
+    if (!branch) return;
+    const target = branch.steps[stepIndex]?.json;
+    if (!target) return;
+    historyRef.current[activeFrameId] = { ...history, activeIndex: stepIndex };
+    void restoreFrameJson(target);
+  };
+
+  return {
+    persistFrameJson, pushHistory, saveCurrentFrame, restoreFrameJson,
+    undoFrame, redoFrame, listBranches, switchBranch, listActiveBranchSteps, restoreHistoryStep
+  };
 }

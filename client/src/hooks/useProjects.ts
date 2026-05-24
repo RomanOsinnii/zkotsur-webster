@@ -1,11 +1,13 @@
 import { Dispatch, MutableRefObject, SetStateAction, ChangeEvent } from 'react';
 import {
   createProject as createProjectRequest,
+  cloneSharedProject as cloneSharedProjectRequest,
   deleteProject as deleteProjectRequest,
   disableProjectShare as disableProjectShareRequest,
   enableProjectShare as enableProjectShareRequest,
   exportProjectFile,
   getProject,
+  getProjectShareDetails as getProjectShareDetailsRequest,
   getSharedProject as getSharedProjectRequest,
   listProjects,
   updateProject as updateProjectRequest,
@@ -223,12 +225,12 @@ export function useProjects({
     }
   };
 
-  const openSharedProject = async (slug: string): Promise<boolean> => {
+  const openSharedProject = async (slug: string, viewerName?: string): Promise<boolean> => {
     setProjectError('');
     setProjectStatus('Loading shared project...');
 
     try {
-      const project = await getSharedProjectRequest(slug);
+      const project = await getSharedProjectRequest(slug, viewerName);
       const nextFrames = parseEditorProjectData(project.data);
       if (!nextFrames) throw new Error('Shared project data is invalid or corrupted.');
       applyProjectFrames(nextFrames, { projectId: project.id, name: project.name, description: project.description });
@@ -459,12 +461,22 @@ export function useProjects({
     }
   };
 
+  const getProjectShareDetails = async (id: string) => getProjectShareDetailsRequest(id);
+
+  const cloneSharedProjectToDrafts = async (slug: string): Promise<ProjectRecord> => {
+    if (!canManageSavedProjects) {
+      throw new Error('Log in to copy this shared project into Drafts.');
+    }
+    return cloneSharedProjectRequest(slug);
+  };
+
   return {
     canManageSavedProjects, projectRequestBusy,
     applyProjectFrames, refreshSavedProjects,
     saveProjectToBackend, autosaveProject, openSavedProject, openSharedProject, deleteSavedProject,
     createProjectFromTemplate, createTemplateFromCurrentProject,
     exportProject, exportProjectFromBackend, importProject,
-    enableProjectShare, disableProjectShare
+    enableProjectShare, disableProjectShare,
+    getProjectShareDetails, cloneSharedProjectToDrafts
   };
 }

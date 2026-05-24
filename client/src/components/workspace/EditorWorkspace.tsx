@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type React from 'react';
-import { Circle as CircleIcon, Download, Grid3X3, ImagePlus, MousePointer2, PenTool, Share2, Sparkles, Square, Triangle as TriangleIcon, Type } from 'lucide-react';
+import { Circle as CircleIcon, Download, Grid3X3, History, ImagePlus, MousePointer2, PenTool, Share2, Sparkles, Square, Triangle as TriangleIcon, Type } from 'lucide-react';
 import { CornerHandle, GalleryTemplate, ResizeHandle, SnapLine, ToolMode } from '../../lib/editorTypes';
 import { type UpdateTemplatePayload } from '../../api/templates';
 
@@ -16,8 +16,6 @@ type Props = {
   saveHint: string;
   projectStatus: string;
   projectRequestBusy: boolean;
-  saveProject: () => void;
-  isSavingProject: boolean;
   openEditorWorkspace: () => void;
   openProjectsWorkspace: () => void;
   isProjectsView: boolean;
@@ -31,6 +29,18 @@ type Props = {
   exportFrame: (format: 'png' | 'jpg' | 'pdf') => void;
   createTemplateFromCurrentProject: () => void;
   shareCurrentProject: () => void;
+  openHistoryModal: () => void;
+  shareModalOpen: boolean;
+  shareModalUrl: string;
+  shareVisitors: Array<{ username: string; visitedAt: string }>;
+  closeShareModal: () => void;
+  copyShareModalLink: () => void;
+  historyModalOpen: boolean;
+  closeHistoryModal: () => void;
+  historyBranches: Array<{ id: string; name: string; steps: number; isActive: boolean }>;
+  historySteps: Array<{ index: number; label: string; changedAt: string; isActive: boolean }>;
+  switchHistoryBranch: (branchId: string) => void;
+  restoreHistoryStep: (index: number) => void;
   shareToLinkedIn: () => void;
   shareToFacebook: () => void;
   shareToX: () => void;
@@ -79,11 +89,11 @@ type Props = {
 export function EditorWorkspace(props: Props) {
   const {
     isReadOnly, isTemplatesMode, activeFrameName, activeFrameSizeLabel, projectName, setProjectName,
-    projectId, saveStatusLabel, saveHint, projectStatus, projectRequestBusy, saveProject, isSavingProject,
+    projectId, saveStatusLabel, saveHint, projectStatus, projectRequestBusy,
     openProjectsWorkspace, isProjectsView,
     openEditorWorkspace, setWorkspaceMode,
     workspaceZoom, setWorkspacePan, setZoom, zoomPercent, showGrid, setShowGrid, exportFrame,
-    createTemplateFromCurrentProject, shareCurrentProject, shareToLinkedIn, shareToFacebook, shareToX,
+    createTemplateFromCurrentProject, shareCurrentProject, openHistoryModal, shareModalOpen, shareModalUrl, shareVisitors, closeShareModal, copyShareModalLink, historyModalOpen, closeHistoryModal, historyBranches, historySteps, switchHistoryBranch, restoreHistoryStep, shareToLinkedIn, shareToFacebook, shareToX,
     disableProjectShare, isProjectShared, shareBusy, shareStatus, shareError,
     galleryTemplates, templateCatalogCount, templateCategories, activeTemplateCategory, setActiveTemplateCategory,
     templateSearchQuery, setTemplateSearchQuery, templateSort, setTemplateSort,
@@ -343,16 +353,6 @@ export function EditorWorkspace(props: Props) {
 
                 <div className="topbar-action-group" aria-label="Project actions">
                   <button
-                    aria-label="Save project"
-                    className="primary-button topbar-action-pill topbar-action-primary"
-                    disabled={isReadOnly || projectRequestBusy}
-                    onClick={saveProject}
-                    title="Save project"
-                    type="button"
-                  >
-                    {isSavingProject ? 'Saving...' : 'Save'}
-                  </button>
-                  <button
                     aria-label="Save current project as template"
                     className="topbar-action-pill topbar-icon-action"
                     disabled={isReadOnly}
@@ -372,6 +372,17 @@ export function EditorWorkspace(props: Props) {
                   >
                     <Share2 size={14} />
                     <span className="topbar-social-mark">Share link</span>
+                  </button>
+                  <button
+                    aria-label="Open history"
+                    className="topbar-action-pill topbar-icon-action"
+                    disabled={isReadOnly}
+                    onClick={openHistoryModal}
+                    title="Open project history"
+                    type="button"
+                  >
+                    <History size={14} />
+                    <span className="topbar-social-mark">History</span>
                   </button>
                   <div className="topbar-social-group" aria-label="Share to social networks">
                     <button
@@ -611,6 +622,73 @@ export function EditorWorkspace(props: Props) {
           >
             Undo
           </button>
+        </div>
+      ) : null}
+
+      {shareModalOpen ? (
+        <div className="share-modal-backdrop" role="dialog" aria-modal="true" aria-label="Share project">
+          <div className="share-modal">
+            <header className="share-modal-head">
+              <h3>Share Project</h3>
+              <button type="button" className="share-modal-close" onClick={closeShareModal}>Close</button>
+            </header>
+            <p className="share-modal-label">Public link</p>
+            <div className="share-modal-row">
+              <input className="share-modal-input" readOnly value={shareModalUrl} />
+              <button type="button" className="share-modal-copy" onClick={copyShareModalLink}>Copy</button>
+            </div>
+            <p className="share-modal-label">Visitors</p>
+            <div className="share-modal-visitors">
+              {shareVisitors.length === 0 ? (
+                <p className="share-modal-empty">No visitors yet.</p>
+              ) : shareVisitors.map((visitor, index) => (
+                <div key={`${visitor.username}-${visitor.visitedAt}-${index}`} className="share-modal-visitor">
+                  <strong>{visitor.username}</strong>
+                  <span>{new Date(visitor.visitedAt).toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {historyModalOpen ? (
+        <div className="share-modal-backdrop" role="dialog" aria-modal="true" aria-label="Project history">
+          <div className="share-modal history-modal">
+            <header className="share-modal-head">
+              <h3>Project History</h3>
+              <button type="button" className="share-modal-close" onClick={closeHistoryModal}>Close</button>
+            </header>
+            <p className="share-modal-label">Branches</p>
+            <div className="history-branch-list">
+              {historyBranches.map((branch) => (
+                <button
+                  key={branch.id}
+                  type="button"
+                  className={branch.isActive ? 'history-branch-btn active' : 'history-branch-btn'}
+                  onClick={() => switchHistoryBranch(branch.id)}
+                >
+                  {branch.name} ({branch.steps}/150)
+                </button>
+              ))}
+            </div>
+            <p className="share-modal-label">Steps</p>
+            <div className="share-modal-visitors">
+              {historySteps.length === 0 ? (
+                <p className="share-modal-empty">No history yet.</p>
+              ) : historySteps.map((step) => (
+                <button
+                  key={step.index}
+                  type="button"
+                  className={step.isActive ? 'history-step-btn active' : 'history-step-btn'}
+                  onClick={() => restoreHistoryStep(step.index)}
+                >
+                  <span>{step.label}</span>
+                  <small>{new Date(step.changedAt).toLocaleString()}</small>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       ) : null}
     </section>

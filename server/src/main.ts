@@ -6,8 +6,8 @@ import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
-  app.useBodyParser('json', { limit: '2mb' });
-  app.useBodyParser('urlencoded', { extended: true, limit: '2mb' });
+  app.useBodyParser('json', { limit: '25mb' });
+  app.useBodyParser('urlencoded', { extended: true, limit: '25mb' });
   app.enableCors();
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,
