@@ -226,29 +226,22 @@ export class AuthService {
   }
 
   private async sendVerificationEmail(email: string, name: string, verificationUrl: string): Promise<boolean> {
-    const smtpHost = this.configService.get<string>('SMTP_HOST');
-    const smtpFrom = this.configService.get<string>('SMTP_FROM');
-
-    if (!smtpHost || !smtpFrom) {
-      this.logger.warn(`SMTP is not configured. Verification preview for ${email}: ${verificationUrl}`);
+    const smtpConfig = this.readSmtpConfig();
+    if (!smtpConfig) {
+      this.logger.warn(`SMTP is not configured (${this.describeMissingSmtpConfig()}). Verification preview for ${email}: ${verificationUrl}`);
       return false;
     }
 
-    const smtpPort = Number(this.configService.get<string>('SMTP_PORT', '587'));
-    const smtpSecure = this.configService.get<string>('SMTP_SECURE', 'false') === 'true';
-    const smtpUser = this.configService.get<string>('SMTP_USER');
-    const smtpPass = this.configService.get<string>('SMTP_PASS');
-
     const transport = createTransport({
-      host: smtpHost,
-      port: smtpPort,
-      secure: smtpSecure,
-      auth: smtpUser && smtpPass ? { user: smtpUser, pass: smtpPass } : undefined
+      host: smtpConfig.host,
+      port: smtpConfig.port,
+      secure: smtpConfig.secure,
+      auth: smtpConfig.user && smtpConfig.pass ? { user: smtpConfig.user, pass: smtpConfig.pass } : undefined
     });
 
     try {
       await transport.sendMail({
-        from: smtpFrom,
+        from: smtpConfig.from,
         to: email,
         subject: 'Verify your Webster account',
         html: `<p>Hello ${name},</p><p>Confirm your Webster account by clicking this link:</p><p><a href="${verificationUrl}">${verificationUrl}</a></p>`
@@ -262,29 +255,22 @@ export class AuthService {
   }
 
   private async sendPasswordResetEmail(email: string, name: string, resetUrl: string): Promise<boolean> {
-    const smtpHost = this.configService.get<string>('SMTP_HOST');
-    const smtpFrom = this.configService.get<string>('SMTP_FROM');
-
-    if (!smtpHost || !smtpFrom) {
-      this.logger.warn(`SMTP is not configured. Password reset preview for ${email}: ${resetUrl}`);
+    const smtpConfig = this.readSmtpConfig();
+    if (!smtpConfig) {
+      this.logger.warn(`SMTP is not configured (${this.describeMissingSmtpConfig()}). Password reset preview for ${email}: ${resetUrl}`);
       return false;
     }
 
-    const smtpPort = Number(this.configService.get<string>('SMTP_PORT', '587'));
-    const smtpSecure = this.configService.get<string>('SMTP_SECURE', 'false') === 'true';
-    const smtpUser = this.configService.get<string>('SMTP_USER');
-    const smtpPass = this.configService.get<string>('SMTP_PASS');
-
     const transport = createTransport({
-      host: smtpHost,
-      port: smtpPort,
-      secure: smtpSecure,
-      auth: smtpUser && smtpPass ? { user: smtpUser, pass: smtpPass } : undefined
+      host: smtpConfig.host,
+      port: smtpConfig.port,
+      secure: smtpConfig.secure,
+      auth: smtpConfig.user && smtpConfig.pass ? { user: smtpConfig.user, pass: smtpConfig.pass } : undefined
     });
 
     try {
       await transport.sendMail({
-        from: smtpFrom,
+        from: smtpConfig.from,
         to: email,
         subject: 'Reset your Webster password',
         html: `<p>Hello ${name},</p><p>Reset your Webster password by clicking this link:</p><p><a href="${resetUrl}">${resetUrl}</a></p>`
@@ -295,5 +281,41 @@ export class AuthService {
       this.logger.warn(`Fallback password reset preview for ${email}: ${resetUrl}`);
       return false;
     }
+  }
+
+  private readSmtpConfig(): {
+    host: string;
+    from: string;
+    port: number;
+    secure: boolean;
+    user: string;
+    pass: string;
+  } | null {
+    const host = this.configService.get<string>('SMTP_HOST')?.trim() ?? '';
+    const from = this.configService.get<string>('SMTP_FROM')?.trim() ?? '';
+    if (!host || !from) {
+      return null;
+    }
+
+    const portRaw = this.configService.get<string>('SMTP_PORT', '587');
+    const port = Number(portRaw);
+    const secure = this.configService.get<string>('SMTP_SECURE', 'false') === 'true';
+    const user = this.configService.get<string>('SMTP_USER')?.trim() ?? '';
+    const pass = this.configService.get<string>('SMTP_PASS')?.trim() ?? '';
+
+    return {
+      host,
+      from,
+      port: Number.isFinite(port) && port > 0 ? port : 587,
+      secure,
+      user,
+      pass
+    };
+  }
+
+  private describeMissingSmtpConfig(): string {
+    const requiredKeys = ['SMTP_HOST', 'SMTP_FROM'] as const;
+    const missing = requiredKeys.filter((key) => !(this.configService.get<string>(key)?.trim()));
+    return missing.length > 0 ? `missing ${missing.join(', ')}` : 'unknown configuration mismatch';
   }
 }
