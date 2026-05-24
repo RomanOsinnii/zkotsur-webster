@@ -173,6 +173,9 @@ jobs:
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      SMTP_USER_SECRET: ${{ secrets.SMTP_USER }}
+      SMTP_PASS_SECRET: ${{ secrets.SMTP_PASS }}
+      SMTP_FROM_SECRET: ${{ secrets.SMTP_FROM }}
       GITHUB_ACTOR_NAME: ${{ github.actor }}
       GITHUB_SHA_FULL: ${{ github.sha }}
       GITHUB_REF_NAME_VALUE: ${{ github.ref_name }}
@@ -249,6 +252,33 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Build .env for deploy
+        shell: bash
+        run: |
+          cp .env.example .env
+          node -e "
+          const fs = require('fs');
+          const envPath = '.env';
+          const source = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+          const overrides = {
+            SMTP_USER: process.env.SMTP_USER_SECRET || '',
+            SMTP_PASS: process.env.SMTP_PASS_SECRET || '',
+            SMTP_FROM: process.env.SMTP_FROM_SECRET || ''
+          };
+          const lines = source.map((line) => {
+            const match = /^([A-Z0-9_]+)=/.exec(line);
+            if (!match) return line;
+            const key = match[1];
+            const override = overrides[key];
+            if (override === undefined || override === '') {
+              return line;
+            }
+            return key + '=' + override;
+          });
+          fs.writeFileSync(envPath, lines.join('\n'));
+          "
+          chmod 600 .env
 
       - name: Deploy on VPS runner
         run: |
