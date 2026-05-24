@@ -11,6 +11,9 @@ export function useEditorState(initialFrames: DesignFrame[]) {
   const [showGrid, setShowGrid] = useState(true);
   const [fillColor, setFillColor] = useState('#1f2937');
   const [fillOpacity, setFillOpacity] = useState(1);
+  const [strokeColor, setStrokeColor] = useState('#000000');
+  const [strokeWidth, setStrokeWidth] = useState(0);
+  const [rotation, setRotation] = useState(0);
   const [fillMode, setFillMode] = useState<FillMode>('solid');
   const [opacity, setOpacity] = useState(1);
   const [fontSize, setFontSize] = useState(56);
@@ -60,6 +63,7 @@ export function useEditorState(initialFrames: DesignFrame[]) {
   return {
     frames, setFrames, activeFrameId, setActiveFrameId, layers, setLayers, selectedObject, setSelectedObject, showGrid, setShowGrid,
     fillColor, setFillColor, fillOpacity, setFillOpacity, fillMode, setFillMode, opacity, setOpacity, fontSize, setFontSize,
+    strokeColor, setStrokeColor, strokeWidth, setStrokeWidth, rotation, setRotation,
     fontFamily, setFontFamily, cornerRadii, setCornerRadii, gradientStops, setGradientStops, fillLayers, setFillLayers,
     activeFillLayerId, setActiveFillLayerId, elementWidth, setElementWidth, elementHeight, setElementHeight, textAlign, setTextAlign,
     snapLines, setSnapLines, cornerHandles, setCornerHandles, resizeHandles, setResizeHandles, workspaceZoom, setWorkspaceZoom,

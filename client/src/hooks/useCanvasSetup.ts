@@ -49,6 +49,9 @@ interface Params {
   setActiveFillLayerId: (id: string) => void;
   setFillColor: (color: string) => void;
   setFillOpacity: (opacity: number) => void;
+  setStrokeColor: (color: string) => void;
+  setStrokeWidth: (width: number) => void;
+  setRotation: (value: number) => void;
   setFillMode: (mode: FillMode) => void;
   setGradientStops: Dispatch<SetStateAction<GradientStopItem[]>>;
   setOpacity: (opacity: number) => void;
@@ -68,6 +71,7 @@ export function useCanvasSetup({
   setSelectedObject, setLayers, setCornerHandles, setResizeHandles,
   setActiveTool, setSnapLines,
   setFillLayers, setActiveFillLayerId, setFillColor, setFillOpacity,
+  setStrokeColor, setStrokeWidth, setRotation,
   setFillMode, setGradientStops, setOpacity, setCornerRadii,
   setFontSize, setFontFamily, setTextAlign, setElementWidth, setElementHeight
 }: Params) {
@@ -102,6 +106,12 @@ export function useCanvasSetup({
         setActiveFillLayerId(currentLayer.id);
         setFillColor(currentLayer.color);
         setFillOpacity(currentLayer.opacity);
+        const stroke = active.get('stroke');
+        const strokeWidth = active.get('strokeWidth');
+        const angle = active.get('angle');
+        setStrokeColor(typeof stroke === 'string' ? stroke : '#000000');
+        setStrokeWidth(typeof strokeWidth === 'number' ? strokeWidth : 0);
+        setRotation(typeof angle === 'number' ? angle : 0);
         setFillMode(currentLayer.mode);
         setGradientStops(currentLayer.stops);
         setOpacity(typeof activeOpacity === 'number' ? activeOpacity : 1);
@@ -109,9 +119,14 @@ export function useCanvasSetup({
         if (typeof nextFontSize === 'number') setFontSize(nextFontSize);
         if (typeof nextFontFamily === 'string') setFontFamily(nextFontFamily);
         if (typeof nextTextAlign === 'string') setTextAlign(nextTextAlign as 'left' | 'center' | 'right');
-        const bounds = active.getBoundingRect();
-        setElementWidth(Math.round(bounds.width));
-        setElementHeight(Math.round(bounds.height));
+        const sizeTarget = active as WebsterObject & {
+          getScaledWidth?: () => number;
+          getScaledHeight?: () => number;
+        };
+        const scaledWidth = sizeTarget.getScaledWidth?.();
+        const scaledHeight = sizeTarget.getScaledHeight?.();
+        setElementWidth(Math.round(typeof scaledWidth === 'number' && Number.isFinite(scaledWidth) ? scaledWidth : active.getBoundingRect().width));
+        setElementHeight(Math.round(typeof scaledHeight === 'number' && Number.isFinite(scaledHeight) ? scaledHeight : active.getBoundingRect().height));
       }
     };
 

@@ -239,6 +239,9 @@ export function EditorApp({ theme, toggleTheme }: Props) {
     showGrid, setShowGrid,
     fillColor, setFillColor,
     fillOpacity, setFillOpacity,
+    strokeColor, setStrokeColor,
+    strokeWidth, setStrokeWidth,
+    rotation, setRotation,
     fillMode, setFillMode,
     opacity, setOpacity,
     fontSize, setFontSize,
@@ -447,7 +450,7 @@ export function EditorApp({ theme, toggleTheme }: Props) {
     activeFrame, selectedObject, cornerRadii, fillColor, fillOpacity,
     fillMode, gradientStops, activeFillLayerId, fillLayers,
     setSelectedObject, setLayers, setCornerHandles, setResizeHandles, setCornerRadii,
-    setFillLayers, setActiveFillLayerId, setFillColor, setFillOpacity, setFillMode,
+    setFillLayers, setActiveFillLayerId, setFillColor, setFillOpacity, setStrokeColor, setStrokeWidth, setRotation, setFillMode,
     setGradientStops, setOpacity, setFontSize, setFontFamily,
     setElementWidth, setElementHeight, setTextAlign, setSnapLines,
     saveCurrentFrame: history.saveCurrentFrame
@@ -473,6 +476,7 @@ export function EditorApp({ theme, toggleTheme }: Props) {
     setSelectedObject, setLayers, setCornerHandles, setResizeHandles,
     setActiveTool, setSnapLines,
     setFillLayers, setActiveFillLayerId, setFillColor, setFillOpacity,
+    setStrokeColor, setStrokeWidth, setRotation,
     setFillMode, setGradientStops, setOpacity, setCornerRadii,
     setFontSize, setFontFamily, setTextAlign, setElementWidth, setElementHeight
   });
@@ -1467,10 +1471,17 @@ export function EditorApp({ theme, toggleTheme }: Props) {
         removeSelected={objectActions.removeSelected}
         opacity={opacity}
         updateOpacity={objectActions.updateOpacity}
+        strokeColor={strokeColor}
+        strokeWidth={strokeWidth}
+        updateStrokeColor={objectActions.updateStrokeColor}
+        updateStrokeWidth={objectActions.updateStrokeWidth}
+        rotation={rotation}
+        updateRotation={objectActions.updateRotation}
         elementWidth={elementWidth}
         elementHeight={elementHeight}
         updateElementWidth={objectActions.updateElementWidth}
         updateElementHeight={objectActions.updateElementHeight}
+        updateImageCornerRadius={objectActions.updateImageCornerRadius}
         fillLayers={fillLayers}
         activeFillLayer={activeFillLayer}
         selectFillLayer={objectActions.selectFillLayer}

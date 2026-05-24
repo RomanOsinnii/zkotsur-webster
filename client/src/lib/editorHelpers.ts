@@ -79,10 +79,11 @@ export function ensureObjectIds(canvas: Canvas) {
 export function configureSelectionOutline(object?: WebsterObject) {
   if (!object) return;
   object.set({
-    hasControls: false,
+    hasControls: true,
     hasBorders: true,
     borderColor: '#7ca7ff',
-    borderScaleFactor: 1
+    borderScaleFactor: 1,
+    lockRotation: false
   });
   object.setControlsVisibility?.({
     mt: false,
@@ -93,7 +94,7 @@ export function configureSelectionOutline(object?: WebsterObject) {
     tr: false,
     bl: false,
     br: false,
-    mtr: false
+    mtr: true
   });
 }
 
@@ -660,12 +661,13 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function isCornerEditable(object: WebsterObject) {
-  return object instanceof Rect || object.shapeKind === 'roundedRectPath';
+  return object instanceof Rect || object.shapeKind === 'roundedRectPath' || object.type === 'image';
 }
 
 export function getObjectCornerRadii(object: WebsterObject): CornerRadii {
   if (object.cornerRadii) return object.cornerRadii;
-  const radius = object instanceof Rect && typeof object.rx === 'number' ? object.rx : 0;
+  const scale = Math.max(0.0001, Math.min(Math.abs(object.scaleX ?? 1), Math.abs(object.scaleY ?? 1)));
+  const radius = object instanceof Rect && typeof object.rx === 'number' ? object.rx * scale : 0;
   return { topLeft: radius, topRight: radius, bottomRight: radius, bottomLeft: radius };
 }
 
@@ -680,14 +682,24 @@ export function hasUniformRadii(radii: CornerRadii) {
 export function createRoundedRectPathFromObject(object: WebsterObject, radii: CornerRadii): WebsterObject | null {
   const width = Number(object.get('width')) || object.getBoundingRect().width;
   const height = Number(object.get('height')) || object.getBoundingRect().height;
+  const center = object.getCenterPoint();
   const path = new Path(createRoundedRectPath(width, height, radii), {
-    left: object.left,
-    top: object.top,
+    left: center.x,
+    top: center.y,
+    originX: 'center',
+    originY: 'center',
     scaleX: object.scaleX,
     scaleY: object.scaleY,
+    skewX: object.skewX,
+    skewY: object.skewY,
+    flipX: object.flipX,
+    flipY: object.flipY,
     angle: object.angle,
     fill: object.get('fill'),
-    opacity: object.opacity
+    opacity: object.opacity,
+    stroke: object.get('stroke'),
+    strokeWidth: object.get('strokeWidth'),
+    strokeUniform: object.get('strokeUniform')
   }) as WebsterObject;
   path.objectId = object.objectId;
   path.objectName = getObjectName(object);

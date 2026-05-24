@@ -10,6 +10,7 @@ import {
   clampRadius,
   configureSelectionOutline,
   createFillLayer,
+  createRoundedRectPath,
   createRoundedRectPathFromObject,
   getCornerHandles,
   getCornerRadiusDelta,
@@ -58,6 +59,9 @@ interface Params {
   setActiveFillLayerId: (id: string) => void;
   setFillColor: (color: string) => void;
   setFillOpacity: (opacity: number) => void;
+  setStrokeColor: (color: string) => void;
+  setStrokeWidth: (width: number) => void;
+  setRotation: (value: number) => void;
   setFillMode: (mode: FillMode) => void;
   setGradientStops: Dispatch<SetStateAction<GradientStopItem[]>>;
   setOpacity: (opacity: number) => void;
@@ -76,11 +80,86 @@ export function useObjectActions({
   fillMode, gradientStops, activeFillLayerId, fillLayers,
   setSelectedObject, setLayers, setCornerHandles, setResizeHandles,
   setCornerRadii, setFillLayers, setActiveFillLayerId, setFillColor,
-  setFillOpacity, setFillMode, setGradientStops, setOpacity,
+  setFillOpacity, setStrokeColor, setStrokeWidth, setRotation, setFillMode, setGradientStops, setOpacity,
   setFontSize, setFontFamily, setElementWidth, setElementHeight,
   setTextAlign, setSnapLines,
   saveCurrentFrame
 }: Params) {
+  const getActiveTarget = () =>
+    ((fabricCanvasRef.current?.getActiveObject() as WebsterObject | undefined) ?? selectedObject ?? null);
+  const getObjectScaledSize = (object: WebsterObject) => {
+    const target = object as WebsterObject & {
+      getScaledWidth?: () => number;
+      getScaledHeight?: () => number;
+    };
+    const scaledWidth = target.getScaledWidth?.();
+    const scaledHeight = target.getScaledHeight?.();
+    return {
+      width: typeof scaledWidth === 'number' && Number.isFinite(scaledWidth) ? scaledWidth : object.getBoundingRect().width,
+      height: typeof scaledHeight === 'number' && Number.isFinite(scaledHeight) ? scaledHeight : object.getBoundingRect().height
+    };
+  };
+  const getObjectBaseSize = (object: WebsterObject) => {
+    const widthRaw = Number(object.get('width'));
+    const heightRaw = Number(object.get('height'));
+    const width = Number.isFinite(widthRaw) && widthRaw > 0 ? widthRaw : object.getBoundingRect().width / Math.max(0.0001, Math.abs(object.scaleX ?? 1));
+    const height = Number.isFinite(heightRaw) && heightRaw > 0 ? heightRaw : object.getBoundingRect().height / Math.max(0.0001, Math.abs(object.scaleY ?? 1));
+    return { width, height };
+  };
+  const toLocalRadii = (object: WebsterObject, radii: CornerRadii): CornerRadii => {
+    const baseSize = getObjectBaseSize(object);
+    const scaleX = Math.max(0.0001, Math.abs(object.scaleX ?? 1));
+    const scaleY = Math.max(0.0001, Math.abs(object.scaleY ?? 1));
+    const minScale = Math.min(scaleX, scaleY);
+    const maxDisplayed = Math.max(0, Math.min(baseSize.width * scaleX, baseSize.height * scaleY) / 2);
+    const normalize = (value: number) => Math.max(0, Math.min(maxDisplayed, value)) / minScale;
+    return {
+      topLeft: normalize(radii.topLeft),
+      topRight: normalize(radii.topRight),
+      bottomRight: normalize(radii.bottomRight),
+      bottomLeft: normalize(radii.bottomLeft)
+    };
+  };
+
+  const applyImageCornerRadii = (target: WebsterObject, radii: CornerRadii) => {
+    const imageObject = target as WebsterObject & { width?: number; height?: number; clipPath?: unknown };
+    const width = typeof imageObject.width === 'number' ? imageObject.width : 0;
+    const height = typeof imageObject.height === 'number' ? imageObject.height : 0;
+    if (width <= 0 || height <= 0) return;
+    const scaleX = Math.max(0.0001, Math.abs(imageObject.scaleX ?? 1));
+    const scaleY = Math.max(0.0001, Math.abs(imageObject.scaleY ?? 1));
+    const maxDisplayedRadius = Math.max(0, Math.min(width * scaleX, height * scaleY) / 2);
+    const normalizeRadius = (value: number) =>
+      Math.max(0, Math.min(maxDisplayedRadius, value)) / Math.min(scaleX, scaleY);
+    const normalizedRadii: CornerRadii = {
+      topLeft: normalizeRadius(radii.topLeft),
+      topRight: normalizeRadius(radii.topRight),
+      bottomRight: normalizeRadius(radii.bottomRight),
+      bottomLeft: normalizeRadius(radii.bottomLeft)
+    };
+    const hasRadius = Object.values(normalizedRadii).some((item) => item > 0);
+    if (!hasRadius) {
+      imageObject.clipPath = undefined;
+      setCornerRadiiMetadata(imageObject, { topLeft: 0, topRight: 0, bottomRight: 0, bottomLeft: 0 });
+      return;
+    }
+    imageObject.clipPath = new Path(createRoundedRectPath(width, height, normalizedRadii), {
+      originX: 'left',
+      originY: 'top',
+      left: -width / 2,
+      top: -height / 2,
+      fill: '#000000',
+      absolutePositioned: false
+    });
+    const clipPathObject = imageObject.clipPath as { dirty?: boolean } | undefined;
+    if (clipPathObject) {
+      clipPathObject.dirty = true;
+    }
+    (imageObject as { dirty?: boolean }).dirty = true;
+    (imageObject as WebsterObject & { setCoords?: () => void }).setCoords?.();
+    setCornerRadiiMetadata(imageObject, radii);
+  };
+
   const addObject = (object: WebsterObject, name: string) => {
     const canvas = fabricCanvasRef.current;
     if (!canvas) return;
@@ -439,48 +518,108 @@ export function useObjectActions({
 
   const updateOpacity = (value: number) => {
     setOpacity(value);
-    selectedObject?.set('opacity', value);
+    getActiveTarget()?.set('opacity', value);
     fabricCanvasRef.current?.requestRenderAll();
     saveCurrentFrame(true);
   };
 
   const updateFontSize = (value: number) => {
     setFontSize(value);
-    selectedObject?.set('fontSize', value);
+    getActiveTarget()?.set('fontSize', value);
     fabricCanvasRef.current?.requestRenderAll();
     saveCurrentFrame(true);
   };
 
   const updateFontFamily = (value: string) => {
     setFontFamily(value);
-    selectedObject?.set('fontFamily', value);
+    getActiveTarget()?.set('fontFamily', value);
     fabricCanvasRef.current?.requestRenderAll();
     saveCurrentFrame(true);
   };
 
   const updateElementWidth = (value: number) => {
-    setElementWidth(value);
-    if (!selectedObject) return;
-    const currentScaleX = selectedObject.scaleX || 1;
-    const baseWidth = selectedObject.getBoundingRect().width / currentScaleX;
-    selectedObject.set('scaleX', value / baseWidth);
+    const active = getActiveTarget();
+    if (!active) return;
+    const nextWidth = Math.max(1, value);
+    const { width: currentWidth } = getObjectScaledSize(active);
+    if (currentWidth <= 0.0001) return;
+    const factor = nextWidth / currentWidth;
+    active.set('scaleX', (active.scaleX || 1) * factor);
+    setElementWidth(Math.round(nextWidth));
+    (active as WebsterObject & { setCoords?: () => void }).setCoords?.();
     fabricCanvasRef.current?.requestRenderAll();
     saveCurrentFrame(true);
   };
 
   const updateElementHeight = (value: number) => {
-    setElementHeight(value);
-    if (!selectedObject) return;
-    const currentScaleY = selectedObject.scaleY || 1;
-    const baseHeight = selectedObject.getBoundingRect().height / currentScaleY;
-    selectedObject.set('scaleY', value / baseHeight);
+    const active = getActiveTarget();
+    if (!active) return;
+    const nextHeight = Math.max(1, value);
+    const { height: currentHeight } = getObjectScaledSize(active);
+    if (currentHeight <= 0.0001) return;
+    const factor = nextHeight / currentHeight;
+    active.set('scaleY', (active.scaleY || 1) * factor);
+    setElementHeight(Math.round(nextHeight));
+    (active as WebsterObject & { setCoords?: () => void }).setCoords?.();
     fabricCanvasRef.current?.requestRenderAll();
     saveCurrentFrame(true);
   };
 
   const updateTextAlign = (align: 'left' | 'center' | 'right') => {
     setTextAlign(align);
-    selectedObject?.set('textAlign', align);
+    getActiveTarget()?.set('textAlign', align);
+    fabricCanvasRef.current?.requestRenderAll();
+    saveCurrentFrame(true);
+  };
+
+  const updateStroke = (color: string, width: number) => {
+    const active = getActiveTarget();
+    if (!active) return;
+    active.set({
+      stroke: width > 0 ? color : null,
+      strokeWidth: width,
+      strokeUniform: true
+    });
+    const radii = getObjectCornerRadii(active);
+    if (active.type === 'image' && radii.topLeft > 0) {
+      applyImageCornerRadii(active, radii);
+    }
+    fabricCanvasRef.current?.requestRenderAll();
+    saveCurrentFrame(true);
+  };
+
+  const updateStrokeColor = (color: string) => {
+    setStrokeColor(color);
+    const activeWidth = getActiveTarget()?.get('strokeWidth');
+    const width = typeof activeWidth === 'number' ? activeWidth : 0;
+    updateStroke(color, width);
+  };
+
+  const updateStrokeWidth = (value: number) => {
+    const nextWidth = Math.max(0, value);
+    setStrokeWidth(nextWidth);
+    const activeStroke = getActiveTarget()?.get('stroke');
+    const color = typeof activeStroke === 'string' ? activeStroke : '#000000';
+    updateStroke(color, nextWidth);
+  };
+
+  const updateRotation = (value: number) => {
+    const next = Number.isFinite(value) ? value : 0;
+    setRotation(next);
+    const active = getActiveTarget();
+    active?.set('angle', next);
+    (active as WebsterObject & { setCoords?: () => void } | null)?.setCoords?.();
+    fabricCanvasRef.current?.requestRenderAll();
+    saveCurrentFrame(true);
+  };
+
+  const updateImageCornerRadius = (value: number) => {
+    const active = getActiveTarget();
+    if (!active || active.type !== 'image') return;
+    const next = Math.max(0, value);
+    const nextRadii = { topLeft: next, topRight: next, bottomRight: next, bottomLeft: next };
+    setCornerRadii(nextRadii);
+    applyImageCornerRadii(active, nextRadii);
     fabricCanvasRef.current?.requestRenderAll();
     saveCurrentFrame(true);
   };
@@ -489,8 +628,58 @@ export function useObjectActions({
     const canvas = fabricCanvasRef.current;
     const active = canvas?.getActiveObject() as WebsterObject | undefined;
     if (!canvas || !active || !isCornerEditable(active)) return;
+    const localRadii = toLocalRadii(active, radii);
+    if (active.shapeKind === 'roundedRectPath' && hasUniformRadii(radii)) {
+      const width = Number(active.get('width')) || active.getBoundingRect().width;
+      const height = Number(active.get('height')) || active.getBoundingRect().height;
+      const center = active.getCenterPoint();
+      const replacement = new Rect({
+        left: center.x,
+        top: center.y,
+        originX: 'center',
+        originY: 'center',
+        width,
+        height,
+        rx: localRadii.topLeft,
+        ry: localRadii.topLeft,
+        scaleX: active.scaleX,
+        scaleY: active.scaleY,
+        skewX: active.skewX,
+        skewY: active.skewY,
+        flipX: active.flipX,
+        flipY: active.flipY,
+        angle: active.angle,
+        fill: active.get('fill'),
+        opacity: active.opacity,
+        stroke: active.get('stroke'),
+        strokeWidth: active.get('strokeWidth'),
+        strokeUniform: active.get('strokeUniform')
+      }) as WebsterObject;
+      replacement.objectId = active.objectId;
+      replacement.objectName = active.objectName;
+      replacement.fillLayers = active.fillLayers;
+      setCornerRadiiMetadata(replacement, radii);
+      canvas.remove(active);
+      canvas.add(replacement);
+      canvas.setActiveObject(replacement);
+      setSelectedObject(replacement);
+      canvas.requestRenderAll();
+      setCornerHandles(getCornerHandles(replacement));
+      setResizeHandles(getResizeHandles(replacement));
+      saveCurrentFrame(recordHistory);
+      return;
+    }
+    if (active.type === 'image') {
+      applyImageCornerRadii(active, radii);
+      canvas.requestRenderAll();
+      setSelectedObject(active);
+      setCornerHandles(getCornerHandles(active));
+      setResizeHandles(getResizeHandles(active));
+      saveCurrentFrame(recordHistory);
+      return;
+    }
     if (active instanceof Rect && hasUniformRadii(radii)) {
-      active.set({ rx: radii.topLeft, ry: radii.topLeft });
+      active.set({ rx: localRadii.topLeft, ry: localRadii.topLeft });
       setCornerRadiiMetadata(active, radii);
       canvas.requestRenderAll();
       setSelectedObject(active);
@@ -499,8 +688,9 @@ export function useObjectActions({
       saveCurrentFrame(recordHistory);
       return;
     }
-    const replacement = createRoundedRectPathFromObject(active, radii);
+    const replacement = createRoundedRectPathFromObject(active, localRadii);
     if (!replacement) return;
+    setCornerRadiiMetadata(replacement, radii);
     canvas.remove(active);
     canvas.add(replacement);
     canvas.setActiveObject(replacement);
@@ -512,7 +702,11 @@ export function useObjectActions({
   };
 
   const updateCornerRadius = (corner: keyof CornerRadii, value: number) => {
-    const next = { ...cornerRadii, [corner]: value };
+    const active = getActiveTarget();
+    const box = active?.getBoundingRect();
+    const maxRadius = box ? Math.max(0, Math.min(box.width, box.height) / 2) : Number.MAX_SAFE_INTEGER;
+    const nextValue = clampRadius(value, maxRadius);
+    const next = { ...cornerRadii, [corner]: nextValue };
     setCornerRadii(next);
     applyCornerRadiiToActive(next, true);
   };
@@ -549,8 +743,9 @@ export function useObjectActions({
       active.setPositionByOrigin(new Point(anchor.x, anchor.y), nextAnchorOrigin.x, nextAnchorOrigin.y);
       active.setCoords();
       refreshObjectFillOnResize(active);
-      setElementWidth(Math.round(active.getBoundingRect().width));
-      setElementHeight(Math.round(active.getBoundingRect().height));
+      const scaled = getObjectScaledSize(active);
+      setElementWidth(Math.round(scaled.width));
+      setElementHeight(Math.round(scaled.height));
       setResizeHandles(getResizeHandles(active));
       setCornerHandles(isCornerEditable(active) ? getCornerHandles(active) : []);
       canvas.requestRenderAll();
@@ -625,7 +820,7 @@ export function useObjectActions({
     exportFrame, handleImageUpload,
     selectFillLayer, updateActiveFillLayer, updateFill, updateFillOpacity,
     applyFillMode, addFillLayer, removeFillLayer,
-    updateOpacity, updateFontSize, updateFontFamily,
+    updateOpacity, updateStrokeColor, updateStrokeWidth, updateRotation, updateImageCornerRadius, updateFontSize, updateFontFamily,
     updateElementWidth, updateElementHeight, updateTextAlign,
     applyCornerRadiiToActive, updateCornerRadius,
     startResizeDrag, startCornerRadiusDrag,
