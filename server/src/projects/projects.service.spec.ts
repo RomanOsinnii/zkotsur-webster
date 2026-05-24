@@ -39,22 +39,39 @@ describe('ProjectsService', () => {
     };
     const created = {
       id: 'project-1',
-      ...payload,
-      owner: { id: ownerId },
-      ownerId,
+      name: payload.name,
+      description: payload.description,
+      lastOpenedAt: new Date(),
+      isPublic: false,
+      shareSlug: null,
+      dataPath: null,
       createdAt: new Date(),
       updatedAt: new Date()
     } as unknown as ProjectEntity;
+    const savedWithPath = {
+      ...created,
+      dataPath: `${process.cwd()}\\storage\\projects\\${ownerId}\\project-1.json`
+    } as unknown as ProjectEntity;
 
     repository.create.mockReturnValue(created);
-    repository.save.mockResolvedValue(created);
+    repository.save
+      .mockResolvedValueOnce(created)
+      .mockResolvedValueOnce(savedWithPath);
 
-    await expect(service.create(payload, ownerId)).resolves.toEqual(created);
-    expect(repository.create).toHaveBeenCalledWith({
-      ...payload,
+    await expect(service.create(payload, ownerId)).resolves.toEqual(expect.objectContaining({
+      id: 'project-1',
+      name: payload.name,
+      description: payload.description,
+      data: payload.data,
+      createdAt: created.createdAt,
+      updatedAt: created.updatedAt
+    }));
+    expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({
+      name: payload.name,
+      description: payload.description,
       owner: { id: ownerId }
-    });
-    expect(repository.save).toHaveBeenCalledWith(created);
+    }));
+    expect(repository.save).toHaveBeenCalledTimes(2);
   });
 
   it('throws when a project is missing', async () => {
