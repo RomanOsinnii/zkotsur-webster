@@ -175,9 +175,6 @@ jobs:
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      SMTP_USER_SECRET: ${{ secrets.SMTP_USER }}
-      SMTP_PASS_SECRET: ${{ secrets.SMTP_PASS }}
-      SMTP_FROM_SECRET: ${{ secrets.SMTP_FROM }}
       GITHUB_ACTOR_NAME: ${{ github.actor }}
       GITHUB_SHA_FULL: ${{ github.sha }}
       GITHUB_REF_NAME_VALUE: ${{ github.ref_name }}
@@ -257,6 +254,10 @@ jobs:
 
       - name: Build .env for deploy
         shell: bash
+        env:
+          SMTP_USER_SECRET: ${{ secrets.SMTP_USER }}
+          SMTP_PASS_SECRET: ${{ secrets.SMTP_PASS }}
+          SMTP_FROM_SECRET: ${{ secrets.SMTP_FROM }}
         run: |
           cp .env.example .env
           SMTP_USER_VALUE="${SMTP_USER_SECRET:-}"
@@ -277,6 +278,22 @@ jobs:
             printf 'SMTP_FROM=%s\n' "${SMTP_FROM_VALUE}" >> .env
           fi
           chmod 600 .env
+
+      - name: Validate deploy secrets
+        shell: bash
+        env:
+          SMTP_USER_SECRET: ${{ secrets.SMTP_USER }}
+          SMTP_PASS_SECRET: ${{ secrets.SMTP_PASS }}
+          SMTP_FROM_SECRET: ${{ secrets.SMTP_FROM }}
+        run: |
+          echo "TELEGRAM_BOT_TOKEN source: $([[ -n "${TELEGRAM_BOT_TOKEN:-}" ]] && echo secret || echo missing)"
+          echo "TELEGRAM_CHAT_ID source: $([[ -n "${TELEGRAM_CHAT_ID:-}" ]] && echo secret || echo missing)"
+          if [[ -z "${SMTP_USER_SECRET:-}" || -z "${SMTP_PASS_SECRET:-}" || -z "${SMTP_FROM_SECRET:-}" ]]; then
+            echo "ERROR: Missing required SMTP secrets in job context."
+            echo "Expected: SMTP_USER, SMTP_PASS, SMTP_FROM"
+            echo "Current: SMTP_USER=$([[ -n "${SMTP_USER_SECRET:-}" ]] && echo set || echo missing), SMTP_PASS=$([[ -n "${SMTP_PASS_SECRET:-}" ]] && echo set || echo missing), SMTP_FROM=$([[ -n "${SMTP_FROM_SECRET:-}" ]] && echo set || echo missing)"
+            exit 1
+          fi
 
       - name: Deploy on VPS runner
         run: |
