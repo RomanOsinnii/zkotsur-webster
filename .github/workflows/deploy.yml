@@ -178,9 +178,6 @@ jobs:
       SMTP_USER_SECRET: ${{ secrets.SMTP_USER }}
       SMTP_PASS_SECRET: ${{ secrets.SMTP_PASS }}
       SMTP_FROM_SECRET: ${{ secrets.SMTP_FROM }}
-      SMTP_USER_VAR: ${{ vars.SMTP_USER }}
-      SMTP_PASS_VAR: ${{ vars.SMTP_PASS }}
-      SMTP_FROM_VAR: ${{ vars.SMTP_FROM }}
       GITHUB_ACTOR_NAME: ${{ github.actor }}
       GITHUB_SHA_FULL: ${{ github.sha }}
       GITHUB_REF_NAME_VALUE: ${{ github.ref_name }}
@@ -262,13 +259,13 @@ jobs:
         shell: bash
         run: |
           cp .env.example .env
-          SMTP_USER_VALUE="${SMTP_USER_SECRET:-${SMTP_USER_VAR:-}}"
-          SMTP_PASS_VALUE="${SMTP_PASS_SECRET:-${SMTP_PASS_VAR:-}}"
-          SMTP_FROM_VALUE="${SMTP_FROM_SECRET:-${SMTP_FROM_VAR:-}}"
+          SMTP_USER_VALUE="${SMTP_USER_SECRET:-}"
+          SMTP_PASS_VALUE="${SMTP_PASS_SECRET:-}"
+          SMTP_FROM_VALUE="${SMTP_FROM_SECRET:-}"
 
-          echo "SMTP_USER source: $([[ -n "${SMTP_USER_SECRET}" ]] && echo secret || ([[ -n "${SMTP_USER_VAR}" ]] && echo var || echo missing))"
-          echo "SMTP_PASS source: $([[ -n "${SMTP_PASS_SECRET}" ]] && echo secret || ([[ -n "${SMTP_PASS_VAR}" ]] && echo var || echo missing))"
-          echo "SMTP_FROM source: $([[ -n "${SMTP_FROM_SECRET}" ]] && echo secret || ([[ -n "${SMTP_FROM_VAR}" ]] && echo var || echo missing))"
+          echo "SMTP_USER source: $([[ -n "${SMTP_USER_SECRET}" ]] && echo secret || echo missing)"
+          echo "SMTP_PASS source: $([[ -n "${SMTP_PASS_SECRET}" ]] && echo secret || echo missing)"
+          echo "SMTP_FROM source: $([[ -n "${SMTP_FROM_SECRET}" ]] && echo secret || echo missing)"
 
           if [[ -n "${SMTP_USER_VALUE}" ]]; then
             printf '\nSMTP_USER=%s\n' "${SMTP_USER_VALUE}" >> .env
