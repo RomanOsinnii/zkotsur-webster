@@ -1,6 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { join } from 'path';
 import { Repository } from 'typeorm';
 import { ProjectEntity } from './project.entity';
 import { ProjectsService } from './projects.service';
@@ -50,7 +51,7 @@ describe('ProjectsService', () => {
     } as unknown as ProjectEntity;
     const savedWithPath = {
       ...created,
-      dataPath: `${process.cwd()}\\storage\\projects\\${ownerId}\\project-1.json`
+      dataPath: join(process.cwd(), 'storage', 'projects', ownerId, 'project-1.json')
     } as unknown as ProjectEntity;
 
     repository.create.mockReturnValue(created);
