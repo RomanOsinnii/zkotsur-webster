@@ -1,4 +1,6 @@
 name: Deploy
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 on:
   push:
@@ -257,27 +259,15 @@ jobs:
         shell: bash
         run: |
           cp .env.example .env
-          node -e "
-          const fs = require('fs');
-          const envPath = '.env';
-          const source = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
-          const overrides = {
-            SMTP_USER: process.env.SMTP_USER_SECRET || '',
-            SMTP_PASS: process.env.SMTP_PASS_SECRET || '',
-            SMTP_FROM: process.env.SMTP_FROM_SECRET || ''
-          };
-          const lines = source.map((line) => {
-            const match = /^([A-Z0-9_]+)=/.exec(line);
-            if (!match) return line;
-            const key = match[1];
-            const override = overrides[key];
-            if (override === undefined || override === '') {
-              return line;
-            }
-            return key + '=' + override;
-          });
-          fs.writeFileSync(envPath, lines.join('\n'));
-          "
+          if [[ -n "${SMTP_USER_SECRET}" ]]; then
+            sed -i "s|^SMTP_USER=.*$|SMTP_USER=${SMTP_USER_SECRET}|" .env
+          fi
+          if [[ -n "${SMTP_PASS_SECRET}" ]]; then
+            sed -i "s|^SMTP_PASS=.*$|SMTP_PASS=${SMTP_PASS_SECRET}|" .env
+          fi
+          if [[ -n "${SMTP_FROM_SECRET}" ]]; then
+            sed -i "s|^SMTP_FROM=.*$|SMTP_FROM=${SMTP_FROM_SECRET}|" .env
+          fi
           chmod 600 .env
 
       - name: Deploy on VPS runner
