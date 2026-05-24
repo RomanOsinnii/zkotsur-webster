@@ -12,8 +12,8 @@ export class ProjectEntity {
   @Column({ type: 'varchar', length: 1000, nullable: true })
   description!: string | null;
 
-  @Column({ type: 'jsonb' })
-  data!: Record<string, unknown>;
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  dataPath!: string | null;
 
   @Column({ type: 'boolean', default: false })
   isPublic!: boolean;

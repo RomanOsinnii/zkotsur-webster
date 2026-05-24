@@ -25,6 +25,7 @@ import {
   createEditorProjectSnapshot,
   deriveProjectName,
   getErrorMessage,
+  isRecord,
   parseEditorProjectData
 } from '../lib/editorHelpers';
 import { createWebsterBinaryFile, parseWebsterBinaryFile } from '../lib/projectBinary';
@@ -278,10 +279,85 @@ export function useProjects({
   };
 
   const createProjectFromTemplate = (template: GalleryTemplate) => {
+    const fitFrameContentToViewport = (frame: DesignFrame): DesignFrame => {
+      if (!frame.json || !Array.isArray(frame.json.objects)) {
+        return frame;
+      }
+
+      const margin = 20;
+      const objects = frame.json.objects.filter(isRecord) as Array<Record<string, unknown>>;
+      if (objects.length === 0) {
+        return frame;
+      }
+
+      const getBox = (entry: Record<string, unknown>) => {
+        const left = typeof entry.left === 'number' ? entry.left : 0;
+        const top = typeof entry.top === 'number' ? entry.top : 0;
+        const width = typeof entry.width === 'number' ? entry.width : 0;
+        const height = typeof entry.height === 'number' ? entry.height : 0;
+        const scaleX = typeof entry.scaleX === 'number' ? entry.scaleX : 1;
+        const scaleY = typeof entry.scaleY === 'number' ? entry.scaleY : 1;
+        const w = Math.max(0, width * scaleX);
+        const h = Math.max(0, height * scaleY);
+        return { left, top, right: left + w, bottom: top + h };
+      };
+
+      let minX = Number.POSITIVE_INFINITY;
+      let minY = Number.POSITIVE_INFINITY;
+      let maxX = Number.NEGATIVE_INFINITY;
+      let maxY = Number.NEGATIVE_INFINITY;
+      for (const object of objects) {
+        const box = getBox(object);
+        minX = Math.min(minX, box.left);
+        minY = Math.min(minY, box.top);
+        maxX = Math.max(maxX, box.right);
+        maxY = Math.max(maxY, box.bottom);
+      }
+
+      const contentWidth = Math.max(1, maxX - minX);
+      const contentHeight = Math.max(1, maxY - minY);
+      const allowedWidth = Math.max(1, frame.width - margin * 2);
+      const allowedHeight = Math.max(1, frame.height - margin * 2);
+      const scale = Math.min(1, allowedWidth / contentWidth, allowedHeight / contentHeight);
+
+      const scaledWidth = contentWidth * scale;
+      const scaledHeight = contentHeight * scale;
+      const offsetX = margin + (allowedWidth - scaledWidth) / 2;
+      const offsetY = margin + (allowedHeight - scaledHeight) / 2;
+
+      const nextObjects = objects.map((entry) => {
+        const next = { ...entry };
+        const left = typeof next.left === 'number' ? next.left : 0;
+        const top = typeof next.top === 'number' ? next.top : 0;
+        next.left = (left - minX) * scale + offsetX;
+        next.top = (top - minY) * scale + offsetY;
+        if (typeof next.scaleX === 'number') {
+          next.scaleX = next.scaleX * scale;
+        } else if (scale !== 1) {
+          next.scaleX = scale;
+        }
+        if (typeof next.scaleY === 'number') {
+          next.scaleY = next.scaleY * scale;
+        } else if (scale !== 1) {
+          next.scaleY = scale;
+        }
+        return next;
+      });
+
+      return {
+        ...frame,
+        json: {
+          ...frame.json,
+          objects: nextObjects
+        }
+      };
+    };
+
     if (template.templateData) {
       const parsedFrames = parseEditorProjectData(template.templateData);
-      if (parsedFrames) {
-        applyProjectFrames(parsedFrames, { projectId: null, name: template.title, description: template.subtitle });
+      if (parsedFrames && parsedFrames.length > 0) {
+        const firstFrame = fitFrameContentToViewport({ ...parsedFrames[0] });
+        applyProjectFrames([firstFrame], { projectId: null, name: template.title, description: template.subtitle });
         return;
       }
     }

@@ -20,8 +20,7 @@ import { ProjectShareDetailsResponseDto } from './dto/project-share-details-resp
 import { ProjectShareResponseDto } from './dto/project-share-response.dto';
 import { ProjectResponseDto } from './dto/project-response.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
-import { ProjectEntity } from './project.entity';
-import { ProjectExportFormat, ProjectsService } from './projects.service';
+import { ProjectExportFormat, ProjectsService, type ProjectView } from './projects.service';
 
 @ApiTags('Projects')
 @ApiBearerAuth()
@@ -33,14 +32,14 @@ export class ProjectsController {
   @Get()
   @ApiOperation({ summary: 'Get all persisted projects ordered by most recent open or update' })
   @ApiOkResponse({ type: ProjectResponseDto, isArray: true })
-  getProjects(@CurrentUser() user: AuthTokenPayload): Promise<ProjectEntity[]> {
+  getProjects(@CurrentUser() user: AuthTokenPayload): Promise<ProjectView[]> {
     return this.projectsService.findAll(user.sub);
   }
 
   @Get('recent')
   @ApiOperation({ summary: 'Get recently opened or edited projects for the current user' })
   @ApiOkResponse({ type: ProjectResponseDto, isArray: true })
-  getRecentProjects(@CurrentUser() user: AuthTokenPayload): Promise<ProjectEntity[]> {
+  getRecentProjects(@CurrentUser() user: AuthTokenPayload): Promise<ProjectView[]> {
     return this.projectsService.findRecent(user.sub);
   }
 
@@ -50,7 +49,7 @@ export class ProjectsController {
   @ApiOkResponse({ type: ProjectResponseDto })
   @ApiBadRequestResponse({ description: 'Invalid UUID or invalid request', type: ApiErrorResponseDto })
   @ApiNotFoundResponse({ description: 'Project not found' })
-  getProjectById(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthTokenPayload): Promise<ProjectEntity> {
+  getProjectById(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthTokenPayload): Promise<ProjectView> {
     return this.projectsService.openProject(id, user.sub);
   }
 
@@ -58,7 +57,7 @@ export class ProjectsController {
   @ApiOperation({ summary: 'Create a new persisted project from the current editor payload' })
   @ApiCreatedResponse({ type: ProjectResponseDto })
   @ApiBadRequestResponse({ description: 'Validation failed', type: ApiErrorResponseDto })
-  createProject(@Body() dto: CreateProjectDto, @CurrentUser() user: AuthTokenPayload): Promise<ProjectEntity> {
+  createProject(@Body() dto: CreateProjectDto, @CurrentUser() user: AuthTokenPayload): Promise<ProjectView> {
     return this.projectsService.create(dto, user.sub);
   }
 
@@ -72,7 +71,7 @@ export class ProjectsController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: UpdateProjectDto,
     @CurrentUser() user: AuthTokenPayload
-  ): Promise<ProjectEntity> {
+  ): Promise<ProjectView> {
     return this.projectsService.update(id, dto, user.sub);
   }
 
@@ -123,7 +122,7 @@ export class ProjectsController {
   @ApiParam({ name: 'slug', description: 'Public project share slug' })
   @ApiCreatedResponse({ type: ProjectResponseDto })
   @ApiNotFoundResponse({ description: 'Shared project not found or disabled' })
-  cloneSharedProject(@Param('slug') slug: string, @CurrentUser() user: AuthTokenPayload): Promise<ProjectEntity> {
+  cloneSharedProject(@Param('slug') slug: string, @CurrentUser() user: AuthTokenPayload): Promise<ProjectView> {
     return this.projectsService.cloneSharedProject(slug, user.sub);
   }
 

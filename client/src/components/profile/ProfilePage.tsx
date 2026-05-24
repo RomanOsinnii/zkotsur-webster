@@ -4,6 +4,7 @@ import { ProjectRecord } from '../../api/projects';
 import { formatRelativeProjectTime, isRecord } from '../../lib/editorHelpers';
 
 type Props = {
+  viewMode?: 'profile' | 'projects';
   authUser: { name: string; email: string; avatarUrl: string | null; createdAt?: string } | null;
   savedProjects: ProjectRecord[];
   projectId: string | null;
@@ -85,6 +86,7 @@ function formatProjectRecency(project: ProjectRecord) {
 
 export function ProfilePage(props: Props) {
   const {
+    viewMode = 'profile',
     authUser,
     savedProjects,
     projectId,
@@ -108,6 +110,8 @@ export function ProfilePage(props: Props) {
   } = props;
 
   const [nameInput, setNameInput] = useState(authUser?.name ?? '');
+  const [projectSearch, setProjectSearch] = useState('');
+  const [projectSort, setProjectSort] = useState<'created-desc' | 'created-asc' | 'opened-desc' | 'opened-asc'>('opened-desc');
   const [savingName, setSavingName] = useState(false);
   const [savingAvatar, setSavingAvatar] = useState(false);
   const [passwordCurrent, setPasswordCurrent] = useState('');
@@ -120,6 +124,27 @@ export function ProfilePage(props: Props) {
   useEffect(() => {
     setNameInput(authUser?.name ?? '');
   }, [authUser?.name]);
+
+  const normalizedProjectSearch = projectSearch.trim().toLowerCase();
+  const visibleProjects = savedProjects
+    .filter((project) => {
+      if (!normalizedProjectSearch) {
+        return true;
+      }
+      const name = project.name.toLowerCase();
+      return name.includes(normalizedProjectSearch);
+    })
+    .sort((a, b) => {
+      const createdA = new Date(a.createdAt).getTime();
+      const createdB = new Date(b.createdAt).getTime();
+      const openedA = a.lastOpenedAt ? new Date(a.lastOpenedAt).getTime() : 0;
+      const openedB = b.lastOpenedAt ? new Date(b.lastOpenedAt).getTime() : 0;
+
+      if (projectSort === 'created-asc') return createdA - createdB;
+      if (projectSort === 'created-desc') return createdB - createdA;
+      if (projectSort === 'opened-asc') return openedA - openedB;
+      return openedB - openedA;
+    });
 
   if (!authUser) {
     return (
@@ -141,6 +166,71 @@ export function ProfilePage(props: Props) {
           <button className="wide-action" onClick={openAuthPage} type="button"><LogIn size={16} /> Open login page</button>
           <button className="wide-action muted-action" onClick={openEditorWorkspace} type="button"><FolderOpen size={16} /> Back to editor</button>
         </div>
+      </section>
+    );
+  }
+
+  if (viewMode === 'projects') {
+    return (
+      <section className="projects-page" aria-label="My projects page">
+        <header className="projects-page-head">
+          <h2>My projects</h2>
+          <p>Search and manage all your saved projects.</p>
+        </header>
+
+        <section className="projects-page-controls">
+          <label className="field compact-field">
+            <span>Search by name</span>
+            <input
+              type="search"
+              placeholder="Project name..."
+              value={projectSearch}
+              onChange={(event) => setProjectSearch(event.target.value)}
+            />
+          </label>
+          <label className="field compact-field">
+            <span>Sort</span>
+            <select value={projectSort} onChange={(event) => setProjectSort(event.target.value as 'created-desc' | 'created-asc' | 'opened-desc' | 'opened-asc')}>
+              <option value="opened-desc">Last opened: newest</option>
+              <option value="opened-asc">Last opened: oldest</option>
+              <option value="created-desc">Created: newest</option>
+              <option value="created-asc">Created: oldest</option>
+            </select>
+          </label>
+          <div className="profile-actions-row">
+            <button className="wide-action" disabled={savedProjectsLoading || projectRequestBusy} onClick={() => void refreshSavedProjects()} type="button"><RefreshCw size={16} /> {savedProjectsLoading ? 'Refreshing...' : 'Refresh'}</button>
+            <button className="wide-action muted-action" onClick={openEditorWorkspace} type="button"><FolderOpen size={16} /> Open editor</button>
+          </div>
+        </section>
+
+        <section className="projects-page-list">
+          {savedProjectsLoading ? <p className="project-feedback">Loading projects...</p> : null}
+          {!savedProjectsLoading && visibleProjects.length === 0 ? (
+            <p className="project-feedback">No projects found for this filter.</p>
+          ) : null}
+          {!savedProjectsLoading ? visibleProjects.map((project) => (
+            <article key={project.id} className={project.id === projectId ? 'projects-page-card active' : 'projects-page-card'}>
+              <button className="projects-page-main" disabled={projectRequestBusy} onClick={() => void openSavedProject(project.id)} type="button">
+                <strong>{project.name}</strong>
+                <span>{project.description || 'No description'}</span>
+                <small>Created: {formatSavedProjectDate(project.createdAt)}</small>
+                <small>Opened: {project.lastOpenedAt ? formatSavedProjectDate(project.lastOpenedAt) : 'Never opened'}</small>
+              </button>
+              <div className="profile-project-actions">
+                <button disabled={projectRequestBusy} onClick={() => void openSavedProject(project.id)} type="button">
+                  {openingProjectId === project.id ? 'Opening...' : <><FolderOpen size={14} /> Open</>}
+                </button>
+                <button disabled={projectRequestBusy} onClick={() => void deleteSavedProject(project.id)} type="button">
+                  {deletingProjectId === project.id ? 'Deleting...' : <><Trash2 size={14} /> Delete</>}
+                </button>
+              </div>
+            </article>
+          )) : null}
+        </section>
+
+        {projectStatus ? <p className="project-feedback success">{projectStatus}</p> : null}
+        {projectError ? <p className="project-feedback error">{projectError}</p> : null}
+        {savedProjectsError ? <p className="project-feedback error">{savedProjectsError}</p> : null}
       </section>
     );
   }

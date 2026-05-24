@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
+import { mkdir, readFile, rm, writeFile } from 'fs/promises';
+import { dirname, join } from 'path';
 import { Repository } from 'typeorm';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
@@ -25,9 +27,14 @@ export type ProjectShareDetails = ProjectShareState & {
   visitors: { username: string; visitedAt: string }[];
 };
 
-export type PublicProjectView = Pick<ProjectEntity, 'id' | 'name' | 'description' | 'data' | 'updatedAt'> & {
+export type PublicProjectView = Pick<ProjectEntity, 'id' | 'name' | 'description' | 'updatedAt'> & {
+  data: Record<string, unknown>;
   shareSlug: string;
   readOnly: true;
+};
+
+export type ProjectView = Pick<ProjectEntity, 'id' | 'name' | 'description' | 'isPublic' | 'shareSlug' | 'lastOpenedAt' | 'createdAt' | 'updatedAt'> & {
+  data: Record<string, unknown>;
 };
 
 @Injectable()
@@ -37,26 +44,35 @@ export class ProjectsService {
     private readonly projectsRepository: Repository<ProjectEntity>
   ) {}
 
-  findAll(ownerId: string): Promise<ProjectEntity[]> {
-    return this.projectsRepository
+  async findAll(ownerId: string): Promise<ProjectView[]> {
+    const projects = await this.projectsRepository
       .createQueryBuilder('project')
       .where('project.ownerId = :ownerId', { ownerId })
       .orderBy('COALESCE(project.lastOpenedAt, project.updatedAt)', 'DESC')
       .addOrderBy('project.updatedAt', 'DESC')
       .getMany();
+
+    return Promise.all(projects.map((project) => this.toProjectView(project)));
   }
 
-  findRecent(ownerId: string, limit = 6): Promise<ProjectEntity[]> {
-    return this.projectsRepository
+  async findRecent(ownerId: string, limit = 6): Promise<ProjectView[]> {
+    const projects = await this.projectsRepository
       .createQueryBuilder('project')
       .where('project.ownerId = :ownerId', { ownerId })
       .orderBy('COALESCE(project.lastOpenedAt, project.updatedAt)', 'DESC')
       .addOrderBy('project.updatedAt', 'DESC')
       .limit(limit)
       .getMany();
+
+    return Promise.all(projects.map((project) => this.toProjectView(project)));
   }
 
-  async findOne(id: string, ownerId: string): Promise<ProjectEntity> {
+  async findOne(id: string, ownerId: string): Promise<ProjectView> {
+    const project = await this.findOneEntity(id, ownerId);
+    return this.toProjectView(project);
+  }
+
+  private async findOneEntity(id: string, ownerId: string): Promise<ProjectEntity> {
     const project = await this.projectsRepository.findOne({ where: { id, owner: { id: ownerId } } });
     if (!project) {
       throw new NotFoundException(`Project with id '${id}' was not found`);
@@ -65,25 +81,30 @@ export class ProjectsService {
     return project;
   }
 
-  async openProject(id: string, ownerId: string): Promise<ProjectEntity> {
-    const project = await this.findOne(id, ownerId);
+  async openProject(id: string, ownerId: string): Promise<ProjectView> {
+    const project = await this.findOneEntity(id, ownerId);
     project.lastOpenedAt = new Date();
-    return this.projectsRepository.save(project);
+    const saved = await this.projectsRepository.save(project);
+    return this.toProjectView(saved);
   }
 
-  async create(dto: CreateProjectDto, ownerId: string): Promise<ProjectEntity> {
+  async create(dto: CreateProjectDto, ownerId: string): Promise<ProjectView> {
     const project = this.projectsRepository.create({
       name: dto.name,
       description: dto.description?.trim() || null,
-      data: dto.data,
+      lastOpenedAt: new Date(),
       owner: { id: ownerId } as UserEntity
     });
 
-    return this.projectsRepository.save(project);
+    const saved = await this.projectsRepository.save(project);
+    saved.dataPath = this.getDataPath(ownerId, saved.id);
+    await this.writeProjectData(saved.dataPath, dto.data);
+    const updated = await this.projectsRepository.save(saved);
+    return this.toProjectView(updated);
   }
 
-  async update(id: string, dto: UpdateProjectDto, ownerId: string): Promise<ProjectEntity> {
-    const project = await this.findOne(id, ownerId);
+  async update(id: string, dto: UpdateProjectDto, ownerId: string): Promise<ProjectView> {
+    const project = await this.findOneEntity(id, ownerId);
 
     if (dto.name !== undefined) {
       project.name = dto.name;
@@ -91,20 +112,27 @@ export class ProjectsService {
     if (dto.description !== undefined) {
       project.description = dto.description?.trim() || null;
     }
+    if (!project.dataPath) {
+      project.dataPath = this.getDataPath(ownerId, project.id);
+    }
     if (dto.data !== undefined) {
-      project.data = dto.data;
+      await this.writeProjectData(project.dataPath, dto.data);
     }
 
-    return this.projectsRepository.save(project);
+    const saved = await this.projectsRepository.save(project);
+    return this.toProjectView(saved);
   }
 
   async remove(id: string, ownerId: string): Promise<void> {
-    const project = await this.findOne(id, ownerId);
+    const project = await this.findOneEntity(id, ownerId);
+    if (project.dataPath) {
+      await rm(project.dataPath, { force: true });
+    }
     await this.projectsRepository.remove(project);
   }
 
   async enableShare(id: string, ownerId: string): Promise<ProjectShareState> {
-    const project = await this.findOne(id, ownerId);
+    const project = await this.findOneEntity(id, ownerId);
 
     project.isPublic = true;
     project.shareSlug = project.shareSlug ?? await this.generateUniqueShareSlug();
@@ -119,14 +147,14 @@ export class ProjectsService {
   }
 
   async disableShare(id: string, ownerId: string): Promise<void> {
-    const project = await this.findOne(id, ownerId);
+    const project = await this.findOneEntity(id, ownerId);
     project.isPublic = false;
     project.shareSlug = null;
     await this.projectsRepository.save(project);
   }
 
   async getShareDetails(id: string, ownerId: string): Promise<ProjectShareDetails> {
-    const project = await this.findOne(id, ownerId);
+    const project = await this.findOneEntity(id, ownerId);
     return {
       isPublic: project.isPublic,
       shareSlug: project.shareSlug,
@@ -156,14 +184,14 @@ export class ProjectsService {
       id: project.id,
       name: project.name,
       description: project.description,
-      data: project.data,
+      data: await this.readProjectData(project),
       shareSlug: project.shareSlug!,
       readOnly: true,
       updatedAt: project.updatedAt
     };
   }
 
-  async cloneSharedProject(slug: string, ownerId: string): Promise<ProjectEntity> {
+  async cloneSharedProject(slug: string, ownerId: string): Promise<ProjectView> {
     const source = await this.projectsRepository.findOne({
       where: { shareSlug: slug, isPublic: true }
     });
@@ -171,26 +199,32 @@ export class ProjectsService {
       throw new NotFoundException('Shared project link is missing or no longer available.');
     }
 
+    const sourceData = await this.readProjectData(source);
     const clone = this.projectsRepository.create({
       name: `${source.name} (Draft)`,
       description: source.description,
-      data: source.data,
+      lastOpenedAt: new Date(),
       owner: { id: ownerId } as UserEntity
     });
 
-    return this.projectsRepository.save(clone);
+    const saved = await this.projectsRepository.save(clone);
+    saved.dataPath = this.getDataPath(ownerId, saved.id);
+    await this.writeProjectData(saved.dataPath, sourceData);
+    const updated = await this.projectsRepository.save(saved);
+    return this.toProjectView(updated);
   }
 
   async exportProject(id: string, ownerId: string, format: ProjectExportFormat): Promise<ProjectExportFile> {
-    const project = await this.findOne(id, ownerId);
-    const frames = extractFrames(project.data);
+    const project = await this.findOneEntity(id, ownerId);
+    const projectData = await this.readProjectData(project);
+    const frames = extractFrames(projectData);
     const fileBaseName = toSafeFileName(project.name || 'webster-project');
 
     if (format === 'json') {
       return {
         fileName: `${fileBaseName}.json`,
         mimeType: 'application/json; charset=utf-8',
-        buffer: Buffer.from(JSON.stringify(project.data, null, 2), 'utf8')
+        buffer: Buffer.from(JSON.stringify(projectData, null, 2), 'utf8')
       };
     }
 
@@ -219,6 +253,39 @@ export class ProjectsService {
     }
 
     throw new Error('Could not generate a unique share link slug.');
+  }
+
+  private getDataPath(ownerId: string, projectId: string): string {
+    return join(process.cwd(), 'storage', 'projects', ownerId, `${projectId}.json`);
+  }
+
+  private async writeProjectData(path: string, data: Record<string, unknown>): Promise<void> {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, JSON.stringify(data), 'utf8');
+  }
+
+  private async readProjectData(project: ProjectEntity): Promise<Record<string, unknown>> {
+    if (!project.dataPath) {
+      return { frames: [] };
+    }
+
+    const content = await readFile(project.dataPath, 'utf8');
+    const parsed = JSON.parse(content) as unknown;
+    return isRecord(parsed) ? parsed : { frames: [] };
+  }
+
+  private async toProjectView(project: ProjectEntity): Promise<ProjectView> {
+    return {
+      id: project.id,
+      name: project.name,
+      description: project.description,
+      data: await this.readProjectData(project),
+      isPublic: project.isPublic,
+      shareSlug: project.shareSlug,
+      lastOpenedAt: project.lastOpenedAt,
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt
+    };
   }
 }
 

@@ -5,6 +5,7 @@ import { clampZoom } from '../lib/editorHelpers';
 interface Params {
   canvasStageRef: MutableRefObject<HTMLDivElement | null>;
   activeFrame: DesignFrame;
+  workspaceMode: 'templates' | 'editor';
   workspaceZoom: number;
   workspacePan: { x: number; y: number };
   spacePressed: boolean;
@@ -18,7 +19,7 @@ interface Params {
 }
 
 export function useWorkspace({
-  canvasStageRef, activeFrame, workspaceZoom, workspacePan, spacePressed,
+  canvasStageRef, activeFrame, workspaceMode, workspaceZoom, workspacePan, spacePressed,
   gridCursorTargetRef, gridCursorCurrentRef, gridCursorAnimationRef,
   isPanningRef, panStartRef,
   setWorkspaceZoom, setWorkspacePan
@@ -57,7 +58,7 @@ export function useWorkspace({
     };
     stage.addEventListener('wheel', handleWheel, { passive: false });
     return () => stage.removeEventListener('wheel', handleWheel);
-  }, [workspaceZoom, activeFrame.width, activeFrame.height]);
+  }, [workspaceMode, workspaceZoom, activeFrame.width, activeFrame.height]);
 
   const updateGridCursorTarget = (event: ReactPointerEvent<HTMLDivElement>) => {
     const stage = canvasStageRef.current;

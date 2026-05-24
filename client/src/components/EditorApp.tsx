@@ -454,7 +454,7 @@ export function EditorApp({ theme, toggleTheme }: Props) {
   });
 
   const workspace = useWorkspace({
-    canvasStageRef, activeFrame, workspaceZoom, workspacePan, spacePressed,
+    canvasStageRef, activeFrame, workspaceMode, workspaceZoom, workspacePan, spacePressed,
     gridCursorTargetRef, gridCursorCurrentRef, gridCursorAnimationRef,
     isPanningRef, panStartRef, setWorkspaceZoom, setWorkspacePan
   });
@@ -1286,6 +1286,7 @@ export function EditorApp({ theme, toggleTheme }: Props) {
 
       {isProfileView ? (
         <ProfilePage
+          viewMode={location.pathname === '/projects' ? 'projects' : 'profile'}
           authUser={authUser}
           savedProjects={savedProjects}
           projectId={projectId}
