@@ -260,13 +260,13 @@ jobs:
         run: |
           cp .env.example .env
           if [[ -n "${SMTP_USER_SECRET}" ]]; then
-            sed -i "s|^SMTP_USER=.*$|SMTP_USER=${SMTP_USER_SECRET}|" .env
+            printf '\nSMTP_USER=%s\n' "${SMTP_USER_SECRET}" >> .env
           fi
           if [[ -n "${SMTP_PASS_SECRET}" ]]; then
-            sed -i "s|^SMTP_PASS=.*$|SMTP_PASS=${SMTP_PASS_SECRET}|" .env
+            printf 'SMTP_PASS=%s\n' "${SMTP_PASS_SECRET}" >> .env
           fi
           if [[ -n "${SMTP_FROM_SECRET}" ]]; then
-            sed -i "s|^SMTP_FROM=.*$|SMTP_FROM=${SMTP_FROM_SECRET}|" .env
+            printf 'SMTP_FROM=%s\n' "${SMTP_FROM_SECRET}" >> .env
           fi
           chmod 600 .env
 
