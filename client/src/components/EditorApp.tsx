@@ -918,10 +918,11 @@ export function EditorApp({ theme, toggleTheme }: Props) {
       ensuredProjectId = savedProjectId;
     }
 
-    if (currentSavedProject?.shareSlug) {
-      const existingUrl = buildProjectShareUrl(currentSavedProject.shareSlug);
+    const latestSavedProject = savedProjects.find((item) => item.id === ensuredProjectId) ?? null;
+    if (latestSavedProject?.shareSlug) {
+      const existingUrl = buildProjectShareUrl(latestSavedProject.shareSlug);
       if (options?.copy) {
-        await copyShareLink(currentSavedProject.shareSlug);
+        await copyShareLink(latestSavedProject.shareSlug);
       }
       return existingUrl;
     }
@@ -947,7 +948,7 @@ export function EditorApp({ theme, toggleTheme }: Props) {
     } finally {
       setShareBusy(false);
     }
-  }, [copyShareLink, currentSavedProject?.shareSlug, isReadOnly, projectId, projects, shareBusy]);
+  }, [copyShareLink, isReadOnly, projectId, projects, savedProjects, shareBusy]);
 
   const shareCurrentProject = useCallback(async () => {
     const shareUrl = await ensureProjectShareUrl();
@@ -989,6 +990,9 @@ export function EditorApp({ theme, toggleTheme }: Props) {
     setShareError('');
     try {
       await projects.disableProjectShare();
+      setShareModalOpen(false);
+      setShareModalUrl('');
+      setShareVisitors([]);
       setShareStatus('Share link disabled.');
     } catch (error) {
       setShareError(getErrorMessage(error, 'Could not disable the public share link.'));
@@ -1269,7 +1273,6 @@ export function EditorApp({ theme, toggleTheme }: Props) {
         projectRequestBusy={projects.projectRequestBusy}
         refreshSavedProjects={projects.refreshSavedProjects}
         savedProjectsLoading={savedProjectsLoading}
-        exportProject={() => projects.exportProject(setProjectStatus, setProjectError)}
         exportProjectFromBackend={(format) => projects.exportProjectFromBackend(format, setProjectStatus, setProjectError)}
         importInputRef={importInputRef}
         importProject={(event) => projects.importProject(event, () => navigate('/editor'))}
@@ -1300,6 +1303,13 @@ export function EditorApp({ theme, toggleTheme }: Props) {
           deletingProjectId={deletingProjectId}
           openSavedProject={openSavedProjectAndRoute}
           deleteSavedProject={deleteSavedProjectAndRoute}
+          exportSavedProject={async (id, format) => {
+            if (format === 'webster') {
+              await projects.exportProjectAsWebster(setProjectStatus, setProjectError, id);
+              return;
+            }
+            await projects.exportProjectFromBackend('json', setProjectStatus, setProjectError, id);
+          }}
           refreshSavedProjects={() => projects.refreshSavedProjects()}
           openAuthPage={() => {
             auth.resetAuthMessages();
@@ -1514,6 +1524,7 @@ export function EditorApp({ theme, toggleTheme }: Props) {
       />}
 
       <input accept="image/*" hidden onChange={objectActions.handleImageUpload} ref={fileInputRef} type="file" />
+      <input accept=".webster,application/octet-stream" hidden onChange={(event) => projects.importProject(event, () => navigate('/editor'))} ref={importInputRef} type="file" />
     </main>
   );
 }

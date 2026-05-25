@@ -111,7 +111,8 @@ export function useFrameActions({
   };
 
   const updateFrameBackground = (color: string) => {
-    const nextFrame = { ...activeFrame, backgroundColor: color };
+    const sourceFrame = framesRef.current.find((frame) => frame.id === activeFrameId) ?? activeFrame;
+    const nextFrame = { ...sourceFrame, backgroundColor: color };
     const canvas = fabricCanvasRef.current;
     if (canvas) { setCanvasBackground(canvas, getFrameBackgroundFill(nextFrame)); saveCurrentFrame(true); }
     updateActiveFrame({ backgroundColor: color });
@@ -119,14 +120,16 @@ export function useFrameActions({
 
   const updateFrameBackgroundOpacity = (opacityValue: number) => {
     const nextOpacity = clampOpacity(opacityValue);
-    const nextFrame = { ...activeFrame, backgroundOpacity: nextOpacity };
+    const sourceFrame = framesRef.current.find((frame) => frame.id === activeFrameId) ?? activeFrame;
+    const nextFrame = { ...sourceFrame, backgroundOpacity: nextOpacity };
     const canvas = fabricCanvasRef.current;
     if (canvas) { setCanvasBackground(canvas, getFrameBackgroundFill(nextFrame)); saveCurrentFrame(true); }
     updateActiveFrame({ backgroundOpacity: nextOpacity });
   };
 
   const updateFrameBackgroundMode = (mode: FillMode) => {
-    const nextFrame = { ...activeFrame, backgroundMode: mode };
+    const sourceFrame = framesRef.current.find((frame) => frame.id === activeFrameId) ?? activeFrame;
+    const nextFrame = { ...sourceFrame, backgroundMode: mode };
     const canvas = fabricCanvasRef.current;
     if (canvas) { setCanvasBackground(canvas, getFrameBackgroundFill(nextFrame)); saveCurrentFrame(true); }
     updateActiveFrame({ backgroundMode: mode });
@@ -136,34 +139,37 @@ export function useFrameActions({
     id: string,
     patch: Partial<Pick<GradientStopItem, 'offset' | 'color' | 'opacity'>>
   ) => {
-    const nextStops = getFrameStops(activeFrame)
+    const sourceFrame = framesRef.current.find((frame) => frame.id === activeFrameId) ?? activeFrame;
+    const nextStops = getFrameStops(sourceFrame)
       .map((stop) => (stop.id === id ? { ...stop, ...patch } : stop))
       .sort((a, b) => a.offset - b.offset);
-    const nextFrame = { ...activeFrame, backgroundStops: nextStops };
+    const nextFrame = { ...sourceFrame, backgroundStops: nextStops };
     const canvas = fabricCanvasRef.current;
     if (canvas) { setCanvasBackground(canvas, getFrameBackgroundFill(nextFrame)); saveCurrentFrame(true); }
     updateActiveFrame({ backgroundStops: nextStops });
   };
 
   const addFrameGradientStop = () => {
-    const nextStops = [...getFrameStops(activeFrame), { id: createId(), offset: 0.5, color: '#737373', opacity: 1 }]
+    const sourceFrame = framesRef.current.find((frame) => frame.id === activeFrameId) ?? activeFrame;
+    const nextStops = [...getFrameStops(sourceFrame), { id: createId(), offset: 0.5, color: '#737373', opacity: 1 }]
       .sort((a, b) => a.offset - b.offset);
     updateActiveFrame({ backgroundStops: nextStops });
     const canvas = fabricCanvasRef.current;
     if (canvas) {
-      setCanvasBackground(canvas, getFrameBackgroundFill({ ...activeFrame, backgroundStops: nextStops }));
+      setCanvasBackground(canvas, getFrameBackgroundFill({ ...sourceFrame, backgroundStops: nextStops }));
       saveCurrentFrame(true);
     }
   };
 
   const removeFrameGradientStop = (id: string) => {
-    const currentStops = getFrameStops(activeFrame);
+    const sourceFrame = framesRef.current.find((frame) => frame.id === activeFrameId) ?? activeFrame;
+    const currentStops = getFrameStops(sourceFrame);
     if (currentStops.length <= 2) return;
     const nextStops = currentStops.filter((stop) => stop.id !== id);
     updateActiveFrame({ backgroundStops: nextStops });
     const canvas = fabricCanvasRef.current;
     if (canvas) {
-      setCanvasBackground(canvas, getFrameBackgroundFill({ ...activeFrame, backgroundStops: nextStops }));
+      setCanvasBackground(canvas, getFrameBackgroundFill({ ...sourceFrame, backgroundStops: nextStops }));
       saveCurrentFrame(true);
     }
   };

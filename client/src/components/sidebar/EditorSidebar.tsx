@@ -1,7 +1,7 @@
 import type React from 'react';
-import { ArrowRight, Circle as CircleIcon, Download, GraduationCap, Grid3X3, Home, ImagePlus, Moon, Plus, Shapes, Sparkles, Square, Sun, Triangle as TriangleIcon, Type, Upload, UserRound } from 'lucide-react';
+import { ArrowRight, Circle as CircleIcon, Grid3X3, Home, ImagePlus, Moon, Plus, Shapes, Square, Sun, Triangle as TriangleIcon, Type, UserRound } from 'lucide-react';
 import { DesignFrame, GalleryTemplate, LayerItem, SidebarPanel } from '../../lib/editorTypes';
-import { ProjectExportFormat, ProjectRecord } from '../../api/projects';
+import { ProjectRecord } from '../../api/projects';
 import { ThemeMode } from '../../lib/theme';
 
 type Props = {
@@ -71,8 +71,7 @@ type Props = {
     projectRequestBusy: boolean;
     refreshSavedProjects: () => Promise<void>;
     savedProjectsLoading: boolean;
-    exportProject: () => Promise<void>;
-    exportProjectFromBackend: (format: ProjectExportFormat) => Promise<void>;
+    exportProjectFromBackend: (format: 'json') => Promise<void>;
     importInputRef: React.RefObject<HTMLInputElement>;
     importProject: (event: React.ChangeEvent<HTMLInputElement>) => void;
     projectStatus: string;
@@ -158,7 +157,6 @@ export function EditorSidebar(props: Props) {
         projectRequestBusy,
         refreshSavedProjects,
         savedProjectsLoading,
-        exportProject,
         exportProjectFromBackend,
         importInputRef,
         importProject,
@@ -249,10 +247,6 @@ export function EditorSidebar(props: Props) {
                 <>
                     <p className="sidebar-nav-label">Editor tools</p>
                     <nav className="sidebar-quick-nav tools-nav" aria-label="Editor tools">
-                        <button className={sidebarPanel === 'uploads' ? 'quick-nav-item active' : 'quick-nav-item'} onClick={() => handleSidebarSelect('uploads')} type="button">
-                            <Upload size={18} />
-                            <span>Uploads</span>
-                        </button>
                         <button className={sidebarPanel === 'elements' ? 'quick-nav-item active' : 'quick-nav-item'} onClick={() => handleSidebarSelect('elements')} type="button">
                             <Shapes size={18} />
                             <span>Elements</span>
@@ -265,14 +259,6 @@ export function EditorSidebar(props: Props) {
                             <ImagePlus size={18} />
                             <span>Photos</span>
                         </button>
-                        <button className={sidebarPanel === 'styles' ? 'quick-nav-item active' : 'quick-nav-item'} onClick={() => handleSidebarSelect('styles')} type="button">
-                            <Sparkles size={18} />
-                            <span>Styles</span>
-                        </button>
-                        <button className={sidebarPanel === 'learn' ? 'quick-nav-item active' : 'quick-nav-item'} onClick={() => handleSidebarSelect('learn')} type="button">
-                            <GraduationCap size={18} />
-                            <span>Learn</span>
-                        </button>
                     </nav>
                 </>
             ) : null}
@@ -281,12 +267,6 @@ export function EditorSidebar(props: Props) {
                 <section className="tool-section">
                     <h2>Template workspace</h2>
                     <p className="panel-caption">Choose a template, start a fresh design, or jump to your profile page.</p>
-                    <button className="wide-action sidebar-btn-primary" onClick={() => openEditorPanel('templates')} type="button">
-                        Open editor
-                    </button>
-                    <button className="wide-action sidebar-btn-secondary" onClick={openProfileMode} type="button">
-                        Open account
-                    </button>
                     {authUser ? (
                         <button className="wide-action sidebar-btn-danger" onClick={logoutUser} type="button">
                             Logout
@@ -373,15 +353,6 @@ export function EditorSidebar(props: Props) {
                         </section>
                     ) : null}
 
-                    {showEditorPanels && sidebarPanel === 'uploads' ? (
-                        <section className="tool-section">
-                            <h2>Uploads</h2>
-                            <p className="panel-caption">Add your own images to the current design.</p>
-                            <button className="wide-action" onClick={() => fileInputRef.current?.click()} type="button">
-                                <Upload size={18} /> Upload image
-                            </button>
-                        </section>
-                    ) : null}
                     {showEditorPanels && sidebarPanel === 'elements' ? (
                         <section className="tool-section">
                             <h2>Elements</h2>
@@ -433,23 +404,6 @@ export function EditorSidebar(props: Props) {
                             <button className="wide-action" onClick={() => fileInputRef.current?.click()} type="button">
                                 <ImagePlus size={18} /> Add photo
                             </button>
-                        </section>
-                    ) : null}
-                    {showEditorPanels && sidebarPanel === 'styles' ? (
-                        <section className="tool-section">
-                            <h2>Styles</h2>
-                            <label className="field compact-field">
-                                <span>Frame background</span>
-                                <input onChange={(event) => updateFrameBackground(event.target.value)} type="color" value={activeFrame.backgroundColor ?? '#ffffff'} />
-                            </label>
-                            <label className="field compact-field">
-                                <span>Selected fill</span>
-                                <input disabled={!selectedObject || selectedObject.type === 'image'} onChange={(event) => updateFill(event.target.value)} type="color" value={fillColor} />
-                            </label>
-                            <label className="field compact-field">
-                                <span>Selected opacity</span>
-                                <input max="1" min="0" onChange={(event) => updateOpacity(Number(event.target.value))} step="0.05" type="range" value={opacity} />
-                            </label>
                         </section>
                     ) : null}
 
@@ -509,71 +463,8 @@ export function EditorSidebar(props: Props) {
                             {saveHint ? <p className="project-feedback">{saveHint}</p> : null}
 
                             <div className="stack-actions">
-                                <button
-                                    className="sidebar-btn-secondary"
-                                    disabled={isReadOnly || !projectId || !canManageSavedProjects || projectRequestBusy || shareBusy}
-                                    onClick={() => {
-                                        void shareProject();
-                                    }}
-                                    title={projectId ? 'Create or copy public share link' : 'Save the project before sharing.'}
-                                    type="button">
-                                    {shareBusy ? 'Sharing...' : 'Share'}
-                                </button>
-                                <button
-                                    className="sidebar-btn-secondary"
-                                    disabled={!isReadOnly || !canManageSavedProjects || shareBusy}
-                                    onClick={() => {
-                                        void copySharedProjectToDrafts();
-                                    }}
-                                    type="button">
-                                    Copy to Drafts
-                                </button>
-                                <button
-                                    className="sidebar-btn-secondary"
-                                    disabled={isReadOnly || !isProjectShared || !canManageSavedProjects || shareBusy}
-                                    onClick={() => {
-                                        void disableProjectShare();
-                                    }}
-                                    type="button">
-                                    Disable share
-                                </button>
-                                <button
-                                    disabled={projectRequestBusy}
-                                    onClick={() => {
-                                        void exportProject();
-                                    }}
-                                    type="button">
-                                    Export .webster
-                                </button>
                                 <button disabled={projectRequestBusy} onClick={() => importInputRef.current?.click()} type="button">
                                     Import .webster
-                                </button>
-                                <button
-                                    className="sidebar-btn-secondary"
-                                    disabled={!canManageSavedProjects || projectRequestBusy}
-                                    onClick={() => {
-                                        void exportProjectFromBackend('json');
-                                    }}
-                                    type="button">
-                                    Export JSON
-                                </button>
-                                <button
-                                    className="sidebar-btn-secondary"
-                                    disabled={!canManageSavedProjects || projectRequestBusy}
-                                    onClick={() => {
-                                        void exportProjectFromBackend('png');
-                                    }}
-                                    type="button">
-                                    Export PNG
-                                </button>
-                                <button
-                                    className="sidebar-btn-secondary"
-                                    disabled={!canManageSavedProjects || projectRequestBusy}
-                                    onClick={() => {
-                                        void exportProjectFromBackend('pdf');
-                                    }}
-                                    type="button">
-                                    Export PDF
                                 </button>
                             </div>
 

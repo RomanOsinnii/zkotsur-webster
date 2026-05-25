@@ -651,7 +651,7 @@ html {
 }
 
 .designer-shell.templates-mode {
-    grid-template-columns: 96px minmax(0, 1fr);
+    grid-template-columns: 320px minmax(0, 1fr);
 }
 
 .designer-shell.profile-mode {
@@ -667,14 +667,10 @@ html {
 }
 
 .designer-shell.templates-mode .sidebar {
-    gap: 12px;
-    padding: 0;
+    gap: 22px;
+    padding: 26px 24px;
     overflow-y: auto;
     background: linear-gradient(180deg, rgba(240, 248, 252, 0.98), rgba(227, 240, 247, 0.96)), radial-gradient(320px 220px at 50% 0, rgba(70, 186, 211, 0.13), transparent 70%);
-}
-
-.designer-shell.templates-mode .brand-block {
-    display: none;
 }
 
 .sidebar,
@@ -731,36 +727,6 @@ html {
     margin-top: -8px;
 }
 
-.designer-shell.templates-mode .sidebar-quick-nav {
-    align-content: start;
-    justify-items: center;
-    gap: 2px;
-    min-height: auto;
-    padding: 10px 6px 14px;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-}
-
-.designer-shell.templates-mode .tool-section {
-    padding: 0 8px 12px;
-}
-
-.designer-shell.templates-mode .tool-section h2 {
-    margin-bottom: 8px;
-    font-size: 0.64rem;
-    text-align: center;
-}
-
-.designer-shell.templates-mode .panel-caption {
-    margin-bottom: 10px;
-    font-size: 0.68rem;
-    text-align: center;
-}
-
-.designer-shell.templates-mode .sidebar-nav-label {
-    display: none;
-}
 
 .quick-nav-item {
     display: inline-flex;
@@ -781,24 +747,6 @@ html {
         color 0.18s ease;
 }
 
-.designer-shell.templates-mode .quick-nav-item {
-    flex-direction: column;
-    justify-content: center;
-    gap: 5px;
-    width: 100%;
-    max-width: 74px;
-    min-height: 74px;
-    padding: 8px 4px;
-    border-radius: 12px;
-    font-size: 0.72rem;
-    letter-spacing: 0;
-    text-align: center;
-}
-
-.designer-shell.templates-mode .quick-nav-item svg {
-    width: 20px;
-    height: 20px;
-}
 
 .quick-nav-item:hover {
     border-color: #b7dbe8;
@@ -819,11 +767,6 @@ html {
     white-space: nowrap;
 }
 
-.designer-shell.templates-mode .quick-nav-item span {
-    max-width: 64px;
-    line-height: 1.05;
-    white-space: normal;
-}
 
 .brand-mark {
     display: grid;
@@ -3504,7 +3447,7 @@ canvas {
     }
 
     .designer-shell.templates-mode {
-        grid-template-columns: 88px minmax(0, 1fr);
+        grid-template-columns: 320px minmax(0, 1fr);
     }
 
     .templates-gallery-grid {
@@ -3561,18 +3504,12 @@ canvas {
     }
 
     .designer-shell.templates-mode {
-        display: grid;
-        grid-template-columns: 82px minmax(0, 1fr);
+        display: block;
     }
 
     .sidebar,
     .properties {
         border-width: 0 0 1px;
-    }
-
-    .designer-shell.templates-mode .sidebar {
-        border-width: 0 1px 0 0;
-        min-height: 100%;
     }
 
     .properties {

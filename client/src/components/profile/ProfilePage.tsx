@@ -14,6 +14,7 @@ type Props = {
   deletingProjectId: string | null;
   openSavedProject: (id: string) => Promise<void>;
   deleteSavedProject: (id: string) => Promise<void>;
+  exportSavedProject: (id: string, format: 'json' | 'webster') => Promise<void>;
   refreshSavedProjects: () => Promise<void>;
   openAuthPage: () => void;
   logoutUser: () => void;
@@ -96,6 +97,7 @@ export function ProfilePage(props: Props) {
     deletingProjectId,
     openSavedProject,
     deleteSavedProject,
+    exportSavedProject,
     refreshSavedProjects,
     openAuthPage,
     logoutUser,
@@ -219,6 +221,12 @@ export function ProfilePage(props: Props) {
               <div className="profile-project-actions">
                 <button disabled={projectRequestBusy} onClick={() => void openSavedProject(project.id)} type="button">
                   {openingProjectId === project.id ? 'Opening...' : <><FolderOpen size={14} /> Open</>}
+                </button>
+                <button disabled={projectRequestBusy} onClick={() => void exportSavedProject(project.id, 'json')} type="button">
+                  <Download size={14} /> Export JSON
+                </button>
+                <button disabled={projectRequestBusy} onClick={() => void exportSavedProject(project.id, 'webster')} type="button">
+                  <Download size={14} /> Export .webster
                 </button>
                 <button disabled={projectRequestBusy} onClick={() => void deleteSavedProject(project.id)} type="button">
                   {deletingProjectId === project.id ? 'Deleting...' : <><Trash2 size={14} /> Delete</>}

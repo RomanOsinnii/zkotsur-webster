@@ -596,9 +596,13 @@ export function useObjectActions({
   };
 
   const updateStrokeWidth = (value: number) => {
-    const nextWidth = Math.max(0, value);
+    const active = getActiveTarget();
+    const maxWidth = active
+      ? Math.max(0, Math.min(getObjectScaledSize(active).width, getObjectScaledSize(active).height) / 2)
+      : Number.MAX_SAFE_INTEGER;
+    const nextWidth = Math.max(0, Math.min(maxWidth, value));
     setStrokeWidth(nextWidth);
-    const activeStroke = getActiveTarget()?.get('stroke');
+    const activeStroke = active?.get('stroke');
     const color = typeof activeStroke === 'string' ? activeStroke : '#000000';
     updateStroke(color, nextWidth);
   };
