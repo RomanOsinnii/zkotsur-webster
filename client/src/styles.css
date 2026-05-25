@@ -209,6 +209,13 @@ html {
     box-shadow: 0 1px 4px rgba(17, 79, 104, 0.22);
 }
 
+.segmented-control.auth-mode-switch button.active {
+    border-color: rgba(22, 115, 145, 0.34);
+    color: #083347;
+    background: linear-gradient(180deg, #bdeef5 0%, #9fdfeb 100%);
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
 .auth-field {
     margin-bottom: 0;
 }
