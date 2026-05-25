@@ -214,7 +214,7 @@ export function useProjects({
       if (!nextFrames) throw new Error('Saved project data is invalid or corrupted.');
       applyProjectFrames(nextFrames, { projectId: project.id, name: project.name, description: project.description });
       onProjectPersisted?.(project);
-      setProjectStatus(`Loaded "${project.name}".`);
+      setProjectStatus('');
       await refreshSavedProjects(true);
       return true;
     } catch (error) {
@@ -236,7 +236,7 @@ export function useProjects({
       if (!nextFrames) throw new Error('Shared project data is invalid or corrupted.');
       applyProjectFrames(nextFrames, { projectId: project.id, name: project.name, description: project.description });
       onProjectPersisted?.(project);
-      setProjectStatus(`Loaded shared project "${project.name}".`);
+      setProjectStatus('');
       return true;
     } catch (error) {
       const status = getHttpErrorStatus(error);

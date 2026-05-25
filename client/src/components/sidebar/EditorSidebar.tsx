@@ -1,5 +1,5 @@
 import type React from 'react';
-import { ArrowRight, Circle as CircleIcon, Grid3X3, Home, ImagePlus, Moon, Plus, Shapes, Square, Sun, Triangle as TriangleIcon, Type, UserRound } from 'lucide-react';
+import { ArrowRight, Circle as CircleIcon, FolderOpen, Grid3X3, ImagePlus, Layers, Moon, PenTool, Shapes, Square, Sun, Triangle as TriangleIcon, Type, UserRound } from 'lucide-react';
 import { DesignFrame, GalleryTemplate, LayerItem, SidebarPanel } from '../../lib/editorTypes';
 import { ProjectRecord } from '../../api/projects';
 import { ThemeMode } from '../../lib/theme';
@@ -8,10 +8,10 @@ type Props = {
     isReadOnly: boolean;
     theme: ThemeMode;
     toggleTheme: () => void;
-    autosaveLabel: string;
-    saveHint: string;
     isTemplatesMode: boolean;
+    isAccountView: boolean;
     isProfileView: boolean;
+    isProjectsView: boolean;
     sidebarPanel: SidebarPanel;
     handleSidebarSelect: (panel: SidebarPanel) => void;
     addFrame: (preset?: { name: string; description: string; width: number; height: number }) => void;
@@ -44,7 +44,7 @@ type Props = {
     selectLayer: (index: number) => void;
     toggleLayerVisibility: (index: number) => void;
     moveLayer: (index: number, direction: 'up' | 'down') => void;
-    authUser: { name: string; email: string } | null;
+    authUser: { name: string; email: string; avatarUrl?: string | null } | null;
     logoutUser: () => void;
     openAuthPage: () => void;
     authStatus: string;
@@ -59,8 +59,6 @@ type Props = {
     defaultProjectName: string;
     undoFrame: () => void;
     redoFrame: () => void;
-    historyBranches: { id: string; name: string; steps: number; isActive: boolean }[];
-    switchHistoryBranch: (branchId: string) => void;
     shareProject: () => Promise<void>;
     copySharedProjectToDrafts: () => Promise<void>;
     disableProjectShare: () => Promise<void>;
@@ -72,9 +70,6 @@ type Props = {
     refreshSavedProjects: () => Promise<void>;
     savedProjectsLoading: boolean;
     exportProjectFromBackend: (format: 'json') => Promise<void>;
-    importInputRef: React.RefObject<HTMLInputElement>;
-    importProject: (event: React.ChangeEvent<HTMLInputElement>) => void;
-    projectStatus: string;
     projectError: string;
     savedProjectsError: string;
     savedProjects: ProjectRecord[];
@@ -87,6 +82,7 @@ type Props = {
     openEditorRoute: (projectId?: string | null) => void;
     openTemplatesRoute: () => void;
     openProjectsRoute: () => void;
+    openProfileRoute: () => void;
 };
 
 export function EditorSidebar(props: Props) {
@@ -94,10 +90,10 @@ export function EditorSidebar(props: Props) {
         isReadOnly,
         theme,
         toggleTheme,
-        autosaveLabel,
-        saveHint,
         isTemplatesMode,
+        isAccountView,
         isProfileView,
+        isProjectsView,
         sidebarPanel,
         handleSidebarSelect,
         addFrame,
@@ -145,8 +141,6 @@ export function EditorSidebar(props: Props) {
         defaultProjectName,
         undoFrame,
         redoFrame,
-        historyBranches,
-        switchHistoryBranch,
         shareProject,
         copySharedProjectToDrafts,
         disableProjectShare,
@@ -158,9 +152,6 @@ export function EditorSidebar(props: Props) {
         refreshSavedProjects,
         savedProjectsLoading,
         exportProjectFromBackend,
-        importInputRef,
-        importProject,
-        projectStatus,
         projectError,
         savedProjectsError,
         savedProjects,
@@ -173,6 +164,7 @@ export function EditorSidebar(props: Props) {
         openEditorRoute,
         openTemplatesRoute,
         openProjectsRoute,
+        openProfileRoute,
     } = props;
 
     const userInitials = authUser
@@ -205,13 +197,17 @@ export function EditorSidebar(props: Props) {
     };
 
     const openProfileMode = () => {
+        openProfileRoute();
+    };
+
+    const openProjectsMode = () => {
         openProjectsRoute();
     };
 
-    const showEditorPanels = !isReadOnly && !isTemplatesMode && !isProfileView;
-    const showReadOnlyFramePanel = isReadOnly && !isTemplatesMode && !isProfileView;
-    const showAccountPanel = !isTemplatesMode && (isReadOnly || isProfileView || sidebarPanel === 'account');
-    const isEditorHomeActive = !isTemplatesMode && !isProfileView;
+    const showEditorPanels = !isReadOnly && !isTemplatesMode && !isAccountView;
+    const showReadOnlyFramePanel = isReadOnly && !isTemplatesMode && !isAccountView;
+    const showAccountPanel = !isTemplatesMode && (isReadOnly || isAccountView || sidebarPanel === 'account');
+    const isEditorHomeActive = !isTemplatesMode && !isAccountView;
 
     return (
         <aside className="sidebar" aria-label="Project tools">
@@ -230,8 +226,8 @@ export function EditorSidebar(props: Props) {
             <p className="sidebar-nav-label">Workspace</p>
             <nav className="sidebar-quick-nav workspace-nav" aria-label="Workspace navigation">
                 <button className={isEditorHomeActive ? 'quick-nav-item active' : 'quick-nav-item'} onClick={() => openEditorPanel('templates')} type="button">
-                    <Home size={18} />
-                    <span>Home</span>
+                    <PenTool size={18} />
+                    <span>Editor</span>
                 </button>
                 <button className={isTemplatesMode ? 'quick-nav-item active' : 'quick-nav-item'} onClick={openTemplatesMode} type="button">
                     <Grid3X3 size={18} />
@@ -239,6 +235,10 @@ export function EditorSidebar(props: Props) {
                 </button>
                 <button className={isProfileView ? 'quick-nav-item active' : 'quick-nav-item'} onClick={openProfileMode} type="button">
                     <UserRound size={18} />
+                    <span>Profile</span>
+                </button>
+                <button className={isProjectsView ? 'quick-nav-item active' : 'quick-nav-item'} onClick={openProjectsMode} type="button">
+                    <FolderOpen size={18} />
                     <span>My projects</span>
                 </button>
             </nav>
@@ -258,6 +258,10 @@ export function EditorSidebar(props: Props) {
                         <button className={sidebarPanel === 'photos' ? 'quick-nav-item active' : 'quick-nav-item'} onClick={() => handleSidebarSelect('photos')} type="button">
                             <ImagePlus size={18} />
                             <span>Photos</span>
+                        </button>
+                        <button className={sidebarPanel === 'layers' ? 'quick-nav-item active' : 'quick-nav-item'} onClick={() => handleSidebarSelect('layers')} type="button">
+                            <Layers size={18} />
+                            <span>Layers</span>
                         </button>
                     </nav>
                 </>
@@ -283,42 +287,23 @@ export function EditorSidebar(props: Props) {
                 <>
                     {showEditorPanels && sidebarPanel === 'templates' ? (
                         <section className="tool-section">
-                            <div className="section-heading">
-                                <h2>Templates</h2>
-                                <button onClick={() => addFrame()} title="Add frame" type="button">
-                                    <Plus size={16} />
-                                </button>
-                            </div>
-                            <p className="panel-caption">Switch frames, add a new canvas size, or jump back to the full template gallery.</p>
-                            <div className="template-list">
-                                {frames.map((frame, index) => (
-                                    <button className={`template-card ${getTemplateToneClass(index)}${frame.id === activeFrameId ? ' active' : ''}`} key={frame.id} onClick={() => switchFrame(frame.id)} type="button">
-                                        <div className="template-card-copy">
-                                            <strong>{frame.name}</strong>
-                                            <span>{frame.description}</span>
-                                            <small>
-                                                {frame.width} x {frame.height}
-                                            </small>
-                                        </div>
-                                        <div aria-hidden className={`template-thumb ${getTemplatePreviewClass(frame, index)}`}>
-                                            <i className="template-thumb-canvas" />
-                                            <i className="template-thumb-shape template-thumb-shape-main" />
-                                            <i className="template-thumb-shape template-thumb-shape-accent" />
-                                            <i className="template-thumb-badge" />
-                                        </div>
+                            <h2>Templates</h2>
+                            <p className="panel-caption">Choose one template/frame at a time from the list.</p>
+                            <div className="template-simple-list" role="listbox" aria-label="Template list">
+                                {frames.map((frame) => (
+                                    <button
+                                        aria-selected={frame.id === activeFrameId}
+                                        className={frame.id === activeFrameId ? 'template-simple-item active' : 'template-simple-item'}
+                                        key={frame.id}
+                                        onClick={() => switchFrame(frame.id)}
+                                        type="button"
+                                    >
+                                        <strong>{frame.name}</strong>
+                                        <span>{frame.description}</span>
+                                        <small>{frame.width} x {frame.height}</small>
                                     </button>
                                 ))}
                             </div>
-                            <div className="preset-row">
-                                {presets.map((preset) => (
-                                    <button key={preset.name} onClick={() => addFrame(preset)} type="button">
-                                        {preset.name}
-                                    </button>
-                                ))}
-                            </div>
-                            <button className="wide-action muted-action" disabled={frames.length <= 1} onClick={deleteSelectedFrame} title="Delete current frame" type="button">
-                                Delete frame
-                            </button>
                             <button className="wide-action" onClick={openTemplatesMode} type="button">
                                 Open full template gallery
                             </button>
@@ -327,27 +312,49 @@ export function EditorSidebar(props: Props) {
 
                     {showReadOnlyFramePanel ? (
                         <section className="tool-section">
-                            <div className="section-heading">
-                                <h2>Frames</h2>
-                            </div>
+                            <h2>Frames</h2>
                             <p className="panel-caption">Browse the saved frames in this shared project. Viewing is read-only.</p>
-                            <div className="template-list">
-                                {frames.map((frame, index) => (
-                                    <button className={`template-card ${getTemplateToneClass(index)}${frame.id === activeFrameId ? ' active' : ''}`} key={frame.id} onClick={() => viewFrameReadOnly(frame.id)} type="button">
-                                        <div className="template-card-copy">
-                                            <strong>{frame.name}</strong>
-                                            <span>{frame.description}</span>
-                                            <small>
-                                                {frame.width} x {frame.height}
-                                            </small>
-                                        </div>
-                                        <div aria-hidden className={`template-thumb ${getTemplatePreviewClass(frame, index)}`}>
-                                            <i className="template-thumb-canvas" />
-                                            <i className="template-thumb-shape template-thumb-shape-main" />
-                                            <i className="template-thumb-shape template-thumb-shape-accent" />
-                                            <i className="template-thumb-badge" />
-                                        </div>
+                            <div className="template-simple-list" role="listbox" aria-label="Read-only frame list">
+                                {frames.map((frame) => (
+                                    <button
+                                        aria-selected={frame.id === activeFrameId}
+                                        className={frame.id === activeFrameId ? 'template-simple-item active' : 'template-simple-item'}
+                                        key={frame.id}
+                                        onClick={() => viewFrameReadOnly(frame.id)}
+                                        type="button"
+                                    >
+                                        <strong>{frame.name}</strong>
+                                        <span>{frame.description}</span>
+                                        <small>{frame.width} x {frame.height}</small>
                                     </button>
+                                ))}
+                            </div>
+                        </section>
+                    ) : null}
+
+                    {showEditorPanels && sidebarPanel === 'layers' ? (
+                        <section className="tool-section">
+                            <h2>Layers</h2>
+                            <p className="panel-caption">Select a layer and manage visibility/order without scrolling to the bottom.</p>
+                            <div className="layer-tree">
+                                {layers.map((layer) => (
+                                    <div className={layer.active ? 'layer-tree-row active' : 'layer-tree-row'} key={layer.id}>
+                                        <button className="layer-tree-main" disabled={!layer.visible} onClick={() => selectLayer(layer.index)} type="button">
+                                            <strong>{layer.name}</strong>
+                                            <span>{layer.visible ? `${layer.type}${layer.active ? ' - selected' : ''}` : `${layer.type} - hidden`}</span>
+                                        </button>
+                                        <div className="layer-tree-actions">
+                                            <button onClick={() => toggleLayerVisibility(layer.index)} type="button">
+                                                {layer.visible ? 'Hide' : 'Show'}
+                                            </button>
+                                            <button onClick={() => moveLayer(layer.index, 'up')} type="button">
+                                                Up
+                                            </button>
+                                            <button onClick={() => moveLayer(layer.index, 'down')} type="button">
+                                                Down
+                                            </button>
+                                        </div>
+                                    </div>
                                 ))}
                             </div>
                         </section>
@@ -407,41 +414,18 @@ export function EditorSidebar(props: Props) {
                         </section>
                     ) : null}
 
-                    {showEditorPanels ? (
-                        <section className="tool-section">
-                            <h2>Layers</h2>
-                            <div className="layer-tree">
-                                {layers.map((layer) => (
-                                    <div className={layer.active ? 'layer-tree-row active' : 'layer-tree-row'} key={layer.id}>
-                                        <button className="layer-tree-main" disabled={!layer.visible} onClick={() => selectLayer(layer.index)} type="button">
-                                            <strong>{layer.name}</strong>
-                                            <span>{layer.visible ? `${layer.type}${layer.active ? ' � selected' : ''}` : `${layer.type} � hidden`}</span>
-                                        </button>
-                                        <div className="layer-tree-actions">
-                                            <button onClick={() => toggleLayerVisibility(layer.index)} type="button">
-                                                {layer.visible ? 'Hide' : 'Show'}
-                                            </button>
-                                            <button onClick={() => moveLayer(layer.index, 'up')} type="button">
-                                                Up
-                                            </button>
-                                            <button onClick={() => moveLayer(layer.index, 'down')} type="button">
-                                                Down
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </section>
-                    ) : null}
-
                     {showAccountPanel ? (
                         <section className="tool-section">
                             <h2>Account</h2>
                             {authUser ? (
                                 <div className="account-profile-card">
-                                    <div className="account-avatar" aria-hidden>
-                                        {userInitials}
-                                    </div>
+                                    {authUser.avatarUrl ? (
+                                        <img alt="Profile avatar" className="account-avatar-image" src={authUser.avatarUrl} />
+                                    ) : (
+                                        <div className="account-avatar" aria-hidden>
+                                            {userInitials}
+                                        </div>
+                                    )}
                                     <div className="account-profile-copy">
                                         <strong>{authUser.name}</strong>
                                         <span>{authUser.email}</span>
@@ -458,26 +442,6 @@ export function EditorSidebar(props: Props) {
                                     </div>
                                 </div>
                             )}
-                            <p className="panel-caption">{isReadOnly ? 'This shared project is open in read-only mode.' : 'Profile details are shown in the center page. Project actions stay available here for quick access.'}</p>
-                            <p className="project-feedback">{autosaveLabel}</p>
-                            {saveHint ? <p className="project-feedback">{saveHint}</p> : null}
-
-                            <div className="stack-actions">
-                                <button disabled={projectRequestBusy} onClick={() => importInputRef.current?.click()} type="button">
-                                    Import .webster
-                                </button>
-                            </div>
-
-                            {!isReadOnly ? (
-                                <div className="stack-actions">
-                                    {historyBranches.map((branch) => (
-                                        <button className={branch.isActive ? 'sidebar-btn-primary' : 'sidebar-btn-secondary'} key={branch.id} onClick={() => switchHistoryBranch(branch.id)} type="button">
-                                            {branch.name} ({branch.steps}/150)
-                                        </button>
-                                    ))}
-                                </div>
-                            ) : null}
-
                             {authUser ? (
                                 <button className="wide-action sidebar-btn-danger" onClick={logoutUser} type="button">
                                     Logout
@@ -487,7 +451,6 @@ export function EditorSidebar(props: Props) {
                                     Open login page
                                 </button>
                             )}
-                            {projectStatus ? <p className="project-feedback success">{projectStatus}</p> : null}
                             {projectError ? <p className="project-feedback error">{projectError}</p> : null}
                             {shareStatus ? <p className="project-feedback success">{shareStatus}</p> : null}
                             {shareError ? <p className="project-feedback error">{shareError}</p> : null}

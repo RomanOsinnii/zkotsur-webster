@@ -596,6 +596,12 @@ export function EditorWorkspace(props: Props) {
         </section>
       ) : (
         <div className={`${showGrid ? 'canvas-stage grid-visible' : 'canvas-stage'} ${spacePressed ? 'pan-mode' : ''}`} onPointerDown={startWorkspacePan} onPointerEnter={handleStagePointerEnter} onPointerLeave={handleStagePointerLeave} onPointerMove={handleStagePointerMove} ref={canvasStageRef}>
+          {showGrid ? (
+            <>
+              <div className="dot-grid dot-grid-base" aria-hidden />
+              <div className="dot-grid dot-grid-focus dot-grid-focus-md" aria-hidden />
+            </>
+          ) : null}
           <div className="active-canvas-frame" ref={activeFrameRef} style={{ transform: `translate(${workspacePan.x}px, ${workspacePan.y}px) scale(${workspaceZoom})` }}>
             <canvas ref={canvasElementRef} />
             {snapLines.map((line, index) => <div key={index} className={`snap-line snap-line-${line.direction}`} style={{ [line.direction === 'horizontal' ? 'top' : 'left']: `${line.position}px` }} />)}

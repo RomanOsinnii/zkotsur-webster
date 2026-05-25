@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Download, FolderOpen, LogIn, LogOut, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import { ProjectRecord } from '../../api/projects';
-import { formatRelativeProjectTime, isRecord } from '../../lib/editorHelpers';
+ 
 
 type Props = {
   viewMode?: 'profile' | 'projects';
@@ -16,6 +16,7 @@ type Props = {
   deleteSavedProject: (id: string) => Promise<void>;
   exportSavedProject: (id: string, format: 'json' | 'webster') => Promise<void>;
   refreshSavedProjects: () => Promise<void>;
+  openImportProjectPicker: () => void;
   openAuthPage: () => void;
   logoutUser: () => void;
   openEditorWorkspace: () => void;
@@ -51,40 +52,6 @@ function formatJoinDate(value?: string): string {
   return parsedDate.toLocaleDateString();
 }
 
-function getProjectPreviewMeta(project: ProjectRecord) {
-  const frame = Array.isArray((project.data as { frames?: unknown[] }).frames)
-    ? (project.data as { frames: unknown[] }).frames.find((entry) => isRecord(entry))
-    : null;
-
-  if (!frame || !isRecord(frame)) {
-    return {
-      sizeLabel: 'Custom project',
-      frameName: 'No preview'
-    };
-  }
-
-  const width = typeof frame.width === 'number' ? Math.round(frame.width) : null;
-  const height = typeof frame.height === 'number' ? Math.round(frame.height) : null;
-  const frameName = typeof frame.name === 'string' && frame.name.trim() ? frame.name.trim() : 'Canvas';
-
-  return {
-    sizeLabel: width && height ? `${width} x ${height}` : 'Custom project',
-    frameName
-  };
-}
-
-function formatProjectRecency(project: ProjectRecord) {
-  if (project.lastOpenedAt) {
-    const lastOpenedTime = new Date(project.lastOpenedAt).getTime();
-    const lastUpdatedTime = new Date(project.updatedAt).getTime();
-    if (!Number.isNaN(lastOpenedTime) && (Number.isNaN(lastUpdatedTime) || lastOpenedTime >= lastUpdatedTime)) {
-      return formatRelativeProjectTime(project.lastOpenedAt, 'Opened');
-    }
-  }
-
-  return formatRelativeProjectTime(project.updatedAt, 'Edited');
-}
-
 export function ProfilePage(props: Props) {
   const {
     viewMode = 'profile',
@@ -99,6 +66,7 @@ export function ProfilePage(props: Props) {
     deleteSavedProject,
     exportSavedProject,
     refreshSavedProjects,
+    openImportProjectPicker,
     openAuthPage,
     logoutUser,
     openEditorWorkspace,
@@ -121,7 +89,6 @@ export function ProfilePage(props: Props) {
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [changingPassword, setChangingPassword] = useState(false);
   const [profileError, setProfileError] = useState('');
-  const recentProjects = savedProjects.slice(0, 4);
 
   useEffect(() => {
     setNameInput(authUser?.name ?? '');
@@ -201,6 +168,7 @@ export function ProfilePage(props: Props) {
           </label>
           <div className="profile-actions-row">
             <button className="wide-action" disabled={savedProjectsLoading || projectRequestBusy} onClick={() => void refreshSavedProjects()} type="button"><RefreshCw size={16} /> {savedProjectsLoading ? 'Refreshing...' : 'Refresh'}</button>
+            <button className="wide-action muted-action" disabled={projectRequestBusy} onClick={openImportProjectPicker} type="button"><Download size={16} /> Import .webster</button>
             <button className="wide-action muted-action" onClick={openEditorWorkspace} type="button"><FolderOpen size={16} /> Open editor</button>
           </div>
         </section>
@@ -236,7 +204,6 @@ export function ProfilePage(props: Props) {
           )) : null}
         </section>
 
-        {projectStatus ? <p className="project-feedback success">{projectStatus}</p> : null}
         {projectError ? <p className="project-feedback error">{projectError}</p> : null}
         {savedProjectsError ? <p className="project-feedback error">{savedProjectsError}</p> : null}
       </section>
@@ -399,8 +366,6 @@ export function ProfilePage(props: Props) {
       </section>
 
       <div className="profile-actions-row">
-        <button className="wide-action" disabled={savedProjectsLoading || projectRequestBusy} onClick={() => void refreshSavedProjects()} type="button"><RefreshCw size={16} /> {savedProjectsLoading ? 'Refreshing...' : 'Refresh projects'}</button>
-        <button className="wide-action muted-action" onClick={openEditorWorkspace} type="button"><FolderOpen size={16} /> Open editor</button>
         <button className="wide-action muted-action" onClick={logoutUser} type="button"><LogOut size={16} /> Logout</button>
       </div>
 
@@ -424,85 +389,6 @@ export function ProfilePage(props: Props) {
         {passwordValidationError ? <p className="project-feedback error">{passwordValidationError}</p> : null}
       </section>
 
-      {projectStatus ? <p className="project-feedback success">{projectStatus}</p> : null}
-      {projectError ? <p className="project-feedback error">{projectError}</p> : null}
-      {savedProjectsError ? <p className="project-feedback error">{savedProjectsError}</p> : null}
-
-      <section className="profile-projects-card">
-        <div className="profile-projects-head">
-          <h3>Recent projects</h3>
-          <small>{recentProjects.length} shown</small>
-        </div>
-
-        {savedProjectsLoading ? <p className="project-feedback">Loading recent projects...</p> : null}
-        {!savedProjectsLoading && recentProjects.length === 0 ? (
-          <p className="project-feedback">No recent projects yet. Open or save a project to continue editing faster next time.</p>
-        ) : null}
-
-        {!savedProjectsLoading && recentProjects.length > 0 ? (
-          <div className="profile-recent-grid">
-            {recentProjects.map((project) => {
-              const preview = getProjectPreviewMeta(project);
-
-              return (
-                <article className={project.id === projectId ? 'profile-recent-card active' : 'profile-recent-card'} key={project.id}>
-                  <button className="profile-recent-preview" disabled={projectRequestBusy} onClick={() => void openSavedProject(project.id)} type="button">
-                    <span>{preview.frameName}</span>
-                    <strong>{preview.sizeLabel}</strong>
-                  </button>
-                  <div className="profile-recent-copy">
-                    <strong>{project.name}</strong>
-                    <span>{project.description || 'No description'}</span>
-                    <small>{formatProjectRecency(project)}</small>
-                  </div>
-                  <div className="profile-project-actions">
-                    <button disabled={projectRequestBusy} onClick={() => void openSavedProject(project.id)} type="button">
-                      {openingProjectId === project.id ? 'Opening...' : <><FolderOpen size={14} /> Open</>}
-                    </button>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        ) : null}
-      </section>
-
-      <section className="profile-projects-card">
-        <div className="profile-projects-head">
-          <h3>Your projects</h3>
-          <small>{savedProjects.length} total</small>
-        </div>
-
-        <div className="profile-projects-list">
-          {savedProjectsLoading ? <p className="project-feedback">Loading saved projects...</p> : null}
-          {!savedProjectsLoading && savedProjects.length === 0 ? (
-            <p className="project-feedback">No saved projects yet. Save your first design to see it here.</p>
-          ) : null}
-
-          {!savedProjectsLoading ? savedProjects.map((project) => (
-            <div className={project.id === projectId ? 'profile-project-row active' : 'profile-project-row'} key={project.id}>
-              <button className="profile-project-main" disabled={projectRequestBusy} onClick={() => void openSavedProject(project.id)} type="button">
-                <strong>{project.name}</strong>
-                <span>{project.description || 'No description'}</span>
-                <small>{project.id === projectId ? `Currently open - ${formatSavedProjectDate(project.updatedAt)}` : formatSavedProjectDate(project.updatedAt)}</small>
-              </button>
-              <div className="profile-project-actions">
-                <button disabled={projectRequestBusy} onClick={() => void openSavedProject(project.id)} type="button">
-                  {openingProjectId === project.id ? 'Opening...' : <><FolderOpen size={14} /> Open</>}
-                </button>
-                <button disabled={projectRequestBusy} onClick={() => void deleteSavedProject(project.id)} type="button">
-                  {deletingProjectId === project.id ? 'Deleting...' : <><Trash2 size={14} /> Delete</>}
-                </button>
-              </div>
-            </div>
-          )) : null}
-        </div>
-      </section>
-
-      <section className="profile-export-note">
-        <Download size={16} />
-        <p>Need backend file exports? Open any project and use Server JSON/PNG/PDF actions in the Account panel.</p>
-      </section>
     </section>
   );
 }

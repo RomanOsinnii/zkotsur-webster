@@ -58,7 +58,7 @@ export function useWorkspace({
     };
     stage.addEventListener('wheel', handleWheel, { passive: false });
     return () => stage.removeEventListener('wheel', handleWheel);
-  }, [workspaceMode, workspaceZoom, activeFrame.width, activeFrame.height]);
+  });
 
   const updateGridCursorTarget = (event: ReactPointerEvent<HTMLDivElement>) => {
     const stage = canvasStageRef.current;
@@ -113,7 +113,9 @@ export function useWorkspace({
   };
 
   const startWorkspacePan = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!spacePressed || event.button !== 0) return;
+    const isMiddleMouseDrag = event.button === 1;
+    const isSpaceDrag = spacePressed && event.button === 0;
+    if (!isMiddleMouseDrag && !isSpaceDrag) return;
     event.preventDefault();
     isPanningRef.current = true;
     panStartRef.current = {

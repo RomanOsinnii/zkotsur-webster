@@ -114,7 +114,7 @@ export type EditorProject = {
   frames: DesignFrame[];
 };
 
-export type SidebarPanel = 'templates' | 'uploads' | 'elements' | 'text' | 'photos' | 'styles' | 'learn' | 'account';
+export type SidebarPanel = 'templates' | 'uploads' | 'elements' | 'text' | 'photos' | 'layers' | 'styles' | 'learn' | 'account';
 export type AuthMode = 'login' | 'register';
 
 export const presets: FramePreset[] = [

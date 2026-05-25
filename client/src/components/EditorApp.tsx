@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas } from 'fabric';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { PanelRightOpen } from 'lucide-react';
 import { changeCurrentUserPassword, updateCurrentUser } from '../api/auth';
 import { enableGuestMode, getAccessToken, isGuestModeEnabled } from '../api/http';
 import { EditorSidebar } from './sidebar/EditorSidebar';
@@ -16,7 +17,7 @@ import {
 } from '../lib/editorTypes';
 import {
   createDefaultGradientStops, createEditorProjectSnapshot, createGradientPreview,
-  formatSavedProjectDate, getErrorMessage, getFrameStops, isCornerEditable, parseEditorProjectData
+  clampZoom, formatSavedProjectDate, getErrorMessage, getFrameStops, isCornerEditable, parseEditorProjectData
 } from '../lib/editorHelpers';
 import { useEditorState } from '../hooks/useEditorState';
 import { useHistory } from '../hooks/useHistory';
@@ -309,6 +310,7 @@ export function EditorApp({ theme, toggleTheme }: Props) {
   const autosaveTimerRef = useRef<number | null>(null);
   const loadedSharedSlugRef = useRef<string | null>(null);
   const initializedProjectRef = useRef<string | null>(null);
+  const centeredProjectRef = useRef<string | null>(null);
   const authReturnPath = useMemo(() => parseAuthReturnPath(location.search), [location.search]);
   const emailVerificationToken = useMemo(() => parseEmailVerificationToken(location.search), [location.search]);
   const isAuthRoute = location.pathname === '/login';
@@ -328,10 +330,23 @@ export function EditorApp({ theme, toggleTheme }: Props) {
   const [sharedProjectUnavailable, setSharedProjectUnavailable] = useState(false);
   const [projectHydrating, setProjectHydrating] = useState(false);
   const [canvasReloadNonce, setCanvasReloadNonce] = useState(0);
+  const [isPropertiesPanelHidden, setIsPropertiesPanelHidden] = useState(false);
+  const previousPathRef = useRef(location.pathname);
   const isReadOnly = isSharedRoute;
   const isTemplatesMode = workspaceMode === 'templates';
-  const isProfileView = !isTemplatesMode && sidebarPanel === 'account';
+  const isAccountView = !isTemplatesMode && sidebarPanel === 'account';
+  const isEditorView = !isTemplatesMode && !isAccountView;
+  const isProjectsRouteView = location.pathname === '/projects';
+  const isProfileRouteView = location.pathname === '/profile';
   const canOpenWorkspaceDirectly = Boolean(authUser || getAccessToken() || isGuestModeEnabled());
+
+  const designerShellClass = isTemplatesMode
+    ? 'designer-shell templates-mode'
+    : isAccountView
+      ? 'designer-shell profile-mode'
+      : isPropertiesPanelHidden
+        ? 'designer-shell properties-hidden'
+        : 'designer-shell';
 
   const templateCategories = useMemo(() => {
     const categories = Array.from(new Set(templateCatalog.map((item) => item.category))).filter(Boolean);
@@ -544,6 +559,21 @@ export function EditorApp({ theme, toggleTheme }: Props) {
   }, [authReturnPath, authUser, isAuthRoute, navigate]);
 
   useEffect(() => {
+    const previousPath = previousPathRef.current;
+    const isEnteringEditorFromAccount = location.pathname.startsWith('/editor') && (previousPath === '/projects' || previousPath === '/profile');
+
+    if (isEnteringEditorFromAccount) {
+      setWorkspaceMode('editor');
+      setSidebarPanel('templates');
+      setActiveTool('select');
+      setWorkspacePan({ x: 0, y: 0 });
+      setWorkspaceZoom(0.62);
+    }
+
+    previousPathRef.current = location.pathname;
+  }, [location.pathname, setActiveTool, setSidebarPanel, setWorkspaceMode, setWorkspacePan, setWorkspaceZoom]);
+
+  useEffect(() => {
     const pathname = location.pathname;
     if (pathname === '/templates') {
       if (workspaceMode !== 'templates') {
@@ -731,6 +761,80 @@ export function EditorApp({ theme, toggleTheme }: Props) {
       initializedProjectRef.current = null;
     }
   }, [routeProjectId]);
+
+  useEffect(() => {
+    const loadedProjectKey = isSharedRoute && routeShareSlug
+      ? `shared:${routeShareSlug}`
+      : routeProjectId
+        ? `saved:${routeProjectId}`
+        : null;
+
+    if (!loadedProjectKey) {
+      centeredProjectRef.current = null;
+      return;
+    }
+
+    if (projectHydrating || workspaceMode !== 'editor') {
+      return;
+    }
+
+    if (centeredProjectRef.current === loadedProjectKey) {
+      return;
+    }
+
+    centeredProjectRef.current = loadedProjectKey;
+    let targetZoom = 0.62;
+    const stage = canvasStageRef.current;
+    if (stage) {
+      const fitPadding = 120;
+      const availableWidth = Math.max(1, stage.clientWidth - fitPadding);
+      const availableHeight = Math.max(1, stage.clientHeight - fitPadding);
+      const fitRatio = Math.min(availableWidth / Math.max(1, activeFrame.width), availableHeight / Math.max(1, activeFrame.height));
+      const fitZoom = clampZoom(Math.min(fitRatio, 1));
+      targetZoom = fitZoom;
+      setWorkspaceZoom(fitZoom);
+      setWorkspacePan({ x: 0, y: 0 });
+    } else {
+      setWorkspaceZoom(0.62);
+      setWorkspacePan({ x: 0, y: 0 });
+    }
+
+    let rafAfterPaint = 0;
+    const raf = window.requestAnimationFrame(() => {
+      const stage = canvasStageRef.current;
+      if (!stage) {
+        return;
+      }
+
+      const centerStageViewport = () => {
+        const centeredLeft = (stage.scrollWidth - stage.clientWidth) / 2;
+        const centeredTop = (stage.scrollHeight - stage.clientHeight) / 2;
+        const horizontalCompensation = Math.max(0, (activeFrame.width * (1 - targetZoom)) / 2);
+        stage.scrollLeft = Math.max(0, centeredLeft - horizontalCompensation);
+        stage.scrollTop = Math.max(0, centeredTop);
+      };
+
+      centerStageViewport();
+      rafAfterPaint = window.requestAnimationFrame(centerStageViewport);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(raf);
+      if (rafAfterPaint) {
+        window.cancelAnimationFrame(rafAfterPaint);
+      }
+    };
+  }, [
+    isSharedRoute,
+    projectHydrating,
+    routeProjectId,
+    routeShareSlug,
+    activeFrame.width,
+    activeFrame.height,
+    setWorkspacePan,
+    setWorkspaceZoom,
+    workspaceMode
+  ]);
 
   useEffect(() => {
     if (isReadOnly || projectHydrating) {
@@ -1109,9 +1213,9 @@ export function EditorApp({ theme, toggleTheme }: Props) {
   const openSavedProjectAndRoute = useCallback(async (id: string) => {
     const opened = await projects.openSavedProject(id);
     if (opened) {
-      navigate(`/editor/${id}`);
+      openEditorRoute(id);
     }
-  }, [navigate, projects]);
+  }, [openEditorRoute, projects]);
 
   const deleteSavedProjectAndRoute = useCallback(async (id: string) => {
     const deleted = await projects.deleteSavedProject(id);
@@ -1202,15 +1306,15 @@ export function EditorApp({ theme, toggleTheme }: Props) {
   }
 
   return (
-    <main className={isTemplatesMode ? 'designer-shell templates-mode' : isProfileView ? 'designer-shell profile-mode' : 'designer-shell'}>
+    <main className={designerShellClass}>
       <EditorSidebar
         isReadOnly={isReadOnly}
         theme={theme}
         toggleTheme={toggleTheme}
-        autosaveLabel={saveStatusLabel}
-        saveHint={saveHint}
         isTemplatesMode={isTemplatesMode}
-        isProfileView={isProfileView}
+        isAccountView={isAccountView}
+        isProfileView={isProfileRouteView}
+        isProjectsView={isProjectsRouteView}
         sidebarPanel={sidebarPanel}
         handleSidebarSelect={frameActions.handleSidebarSelect}
         addFrame={frameActions.addFrame}
@@ -1261,8 +1365,6 @@ export function EditorApp({ theme, toggleTheme }: Props) {
         defaultProjectName={defaultProjectName}
         undoFrame={history.undoFrame}
         redoFrame={history.redoFrame}
-        historyBranches={history.listBranches()}
-        switchHistoryBranch={history.switchBranch}
         shareProject={shareCurrentProject}
         copySharedProjectToDrafts={copySharedProjectToDrafts}
         disableProjectShare={disableSharedProject}
@@ -1274,9 +1376,6 @@ export function EditorApp({ theme, toggleTheme }: Props) {
         refreshSavedProjects={projects.refreshSavedProjects}
         savedProjectsLoading={savedProjectsLoading}
         exportProjectFromBackend={(format) => projects.exportProjectFromBackend(format, setProjectStatus, setProjectError)}
-        importInputRef={importInputRef}
-        importProject={(event) => projects.importProject(event, () => navigate('/editor'))}
-        projectStatus={projectStatus}
         projectError={projectError}
         savedProjectsError={savedProjectsError}
         savedProjects={savedProjects}
@@ -1289,11 +1388,12 @@ export function EditorApp({ theme, toggleTheme }: Props) {
         openEditorRoute={openEditorRoute}
         openTemplatesRoute={openTemplatesRoute}
         openProjectsRoute={() => openProjectsRoute('/projects')}
+        openProfileRoute={() => openProjectsRoute('/profile')}
       />
 
-      {isProfileView ? (
+      {isAccountView ? (
         <ProfilePage
-          viewMode={location.pathname === '/projects' ? 'projects' : 'profile'}
+          viewMode={isProjectsRouteView ? 'projects' : 'profile'}
           authUser={authUser}
           savedProjects={savedProjects}
           projectId={projectId}
@@ -1311,6 +1411,7 @@ export function EditorApp({ theme, toggleTheme }: Props) {
             await projects.exportProjectFromBackend('json', setProjectStatus, setProjectError, id);
           }}
           refreshSavedProjects={() => projects.refreshSavedProjects()}
+          openImportProjectPicker={() => importInputRef.current?.click()}
           openAuthPage={() => {
             auth.resetAuthMessages();
             openLoginRoute();
@@ -1372,7 +1473,7 @@ export function EditorApp({ theme, toggleTheme }: Props) {
         projectRequestBusy={projects.projectRequestBusy}
         openEditorWorkspace={() => openEditorRoute(projectId)}
         openProjectsWorkspace={() => openProjectsRoute('/projects')}
-        isProjectsView={!isTemplatesMode && sidebarPanel === 'account'}
+        isProjectsView={isProjectsRouteView}
         setWorkspaceMode={setWorkspaceMode}
         workspaceZoom={workspaceZoom}
         setWorkspacePan={setWorkspacePan}
@@ -1460,8 +1561,9 @@ export function EditorApp({ theme, toggleTheme }: Props) {
       />
       )}
 
-      {isProfileView ? null : <EditorProperties
+      {isAccountView ? null : <EditorProperties
         isReadOnly={isReadOnly}
+        togglePanelVisibility={() => setIsPropertiesPanelHidden(true)}
         frameWidthInput={frameWidthInput}
         setFrameWidthInput={setFrameWidthInput}
         commitFrameWidth={frameActions.commitFrameWidth}
@@ -1492,13 +1594,6 @@ export function EditorApp({ theme, toggleTheme }: Props) {
         updateElementWidth={objectActions.updateElementWidth}
         updateElementHeight={objectActions.updateElementHeight}
         updateImageCornerRadius={objectActions.updateImageCornerRadius}
-        fillLayers={fillLayers}
-        activeFillLayer={activeFillLayer}
-        selectFillLayer={objectActions.selectFillLayer}
-        colorWithOpacity={colorWithOpacity}
-        createGradientPreview={createGradientPreview}
-        addFillLayer={objectActions.addFillLayer}
-        removeFillLayer={objectActions.removeFillLayer}
         fillMode={fillMode}
         applyFillMode={objectActions.applyFillMode}
         fillColor={fillColor}
@@ -1522,6 +1617,18 @@ export function EditorApp({ theme, toggleTheme }: Props) {
         textAlign={textAlign}
         updateTextAlign={objectActions.updateTextAlign}
       />}
+
+      {isEditorView && isPropertiesPanelHidden ? (
+        <button
+          aria-label="Show right panel"
+          className="properties-reveal-handle"
+          onClick={() => setIsPropertiesPanelHidden(false)}
+          title="Show right panel"
+          type="button"
+        >
+          <PanelRightOpen size={16} />
+        </button>
+      ) : null}
 
       <input accept="image/*" hidden onChange={objectActions.handleImageUpload} ref={fileInputRef} type="file" />
       <input accept=".webster,application/octet-stream" hidden onChange={(event) => projects.importProject(event, () => navigate('/editor'))} ref={importInputRef} type="file" />
