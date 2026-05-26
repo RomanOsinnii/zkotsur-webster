@@ -19,27 +19,27 @@ export class UserEntity {
   @Column({ type: 'varchar', length: 255, select: false })
   passwordHash!: string;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   emailVerifiedAt!: Date | null;
 
   @Column({ type: 'varchar', length: 128, nullable: true, select: false })
   emailVerificationTokenHash!: string | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   emailVerificationSentAt!: Date | null;
 
   @Column({ type: 'varchar', length: 128, nullable: true, select: false })
   passwordResetTokenHash!: string | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   passwordResetSentAt!: Date | null;
 
   @OneToMany(() => ProjectEntity, (project) => project.owner)
   projects!: ProjectEntity[];
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }

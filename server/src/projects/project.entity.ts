@@ -24,7 +24,7 @@ export class ProjectEntity {
   @Column({ type: 'jsonb', default: () => "'[]'" })
   shareVisitors!: { username: string; visitedAt: string }[];
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   lastOpenedAt!: Date | null;
 
   @ManyToOne(() => UserEntity, (user) => user.projects, { nullable: false, onDelete: 'CASCADE' })
@@ -33,9 +33,9 @@ export class ProjectEntity {
   @RelationId((project: ProjectEntity) => project.owner)
   ownerId!: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
