@@ -22,6 +22,7 @@ services:
             context: ./server
             target: production
         container_name: webster-server
+        working_dir: /app
         restart: unless-stopped
         environment:
             NODE_ENV: production
@@ -48,6 +49,8 @@ services:
             - '3000'
         ports:
             - '${SERVER_PORT:-3000}:3000'
+        volumes:
+            - ./server/storage:/app/storage
 
     client:
         build:
