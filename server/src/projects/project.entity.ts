@@ -27,11 +27,14 @@ export class ProjectEntity {
   @Column({ type: 'timestamptz', nullable: true })
   lastOpenedAt!: Date | null;
 
-  @ManyToOne(() => UserEntity, (user) => user.projects, { nullable: false, onDelete: 'CASCADE' })
-  owner!: UserEntity;
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  guestId!: string | null;
+
+  @ManyToOne(() => UserEntity, (user) => user.projects, { nullable: true, onDelete: 'CASCADE' })
+  owner!: UserEntity | null;
 
   @RelationId((project: ProjectEntity) => project.owner)
-  ownerId!: string;
+  ownerId!: string | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;

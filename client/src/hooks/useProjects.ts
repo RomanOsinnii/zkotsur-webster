@@ -6,6 +6,7 @@ import {
   disableProjectShare as disableProjectShareRequest,
   enableProjectShare as enableProjectShareRequest,
   exportProjectFile,
+  importWebsterProjectFile,
   getProject,
   getProjectShareDetails as getProjectShareDetailsRequest,
   getSharedProject as getSharedProjectRequest,
@@ -28,7 +29,6 @@ import {
   isRecord,
   parseEditorProjectData
 } from '../lib/editorHelpers';
-import { createWebsterBinaryFile, parseWebsterBinaryFile } from '../lib/projectBinary';
 
 interface Params {
   framesRef: MutableRefObject<DesignFrame[]>;
@@ -425,18 +425,7 @@ export function useProjects({
   };
 
   const exportProject = async (setStatus: (s: string) => void, setError: (s: string) => void) => {
-    saveCurrentFrame();
-    try {
-      const blob = await createWebsterBinaryFile(framesRef.current);
-      const link = document.createElement('a');
-      link.download = 'webster-project.webster';
-      link.href = URL.createObjectURL(blob);
-      link.click();
-      URL.revokeObjectURL(link.href);
-      setStatus('Project exported as .webster binary file.');
-    } catch (error) {
-      setError(getErrorMessage(error, 'Could not export the .webster binary file.'));
-    }
+    await exportProjectAsWebster(setStatus, setError);
   };
 
   const exportProjectFromBackend = async (
@@ -474,39 +463,28 @@ export function useProjects({
     }
   };
 
-  const importProject = (event: ChangeEvent<HTMLInputElement>, onImported?: () => void) => {
+  const importProject = (event: ChangeEvent<HTMLInputElement>, onImported?: (projectId: string | null) => void) => {
     const file = event.target.files?.[0];
     if (!file) return;
     const importFromBinary = async () => {
+      if (!canManageSavedProjects) {
+        setProjectError('Log in to import project files.');
+        event.target.value = '';
+        return;
+      }
       setProjectError('');
-      setProjectStatus('');
+      setProjectStatus('Importing WEBSTER on backend...');
       try {
-        let buffer: ArrayBuffer;
-        try {
-          buffer = await file.arrayBuffer();
-        } catch {
-          const reader = new FileReader();
-          buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
-            reader.onload = () => {
-              if (reader.result instanceof ArrayBuffer) {
-                resolve(reader.result);
-                return;
-              }
-              reject(new Error('Imported file could not be read.'));
-            };
-            reader.onerror = () => reject(new Error('Imported file could not be read.'));
-            reader.readAsArrayBuffer(file);
-          });
-        }
-
-        const project = await parseWebsterBinaryFile(buffer);
-        const nextFrames = parseEditorProjectData(project);
+        const created = await importWebsterProjectFile(file);
+        const nextFrames = parseEditorProjectData(created.data);
         if (!nextFrames) throw new Error('Project binary data is invalid or corrupted.');
-        applyProjectFrames(nextFrames, { projectId: null, name: deriveProjectName(nextFrames), description: '' });
-        setProjectStatus('Project imported from .webster binary file.');
-        onImported?.();
+        applyProjectFrames(nextFrames, { projectId: created.id, name: created.name, description: created.description ?? '' });
+        onProjectPersisted?.(created);
+        await refreshSavedProjects(true);
+        setProjectStatus('Project imported from .webster file.');
+        onImported?.(created.id);
       } catch (error) {
-        setProjectError(getErrorMessage(error, 'Could not import the .webster binary file.'));
+        setProjectError(getErrorMessage(error, 'Could not import the .webster file.'));
       } finally {
         event.target.value = '';
       }
@@ -573,27 +551,18 @@ export function useProjects({
       return;
     }
 
-    const sourceProject = savedProjects.find((item) => item.id === sourceProjectId);
-    const projectData = sourceProject?.data;
-    const parsedFrames = projectData ? parseEditorProjectData(projectData) : null;
-    if (!parsedFrames?.length) {
-      setError('Could not export .webster: project data is missing or invalid.');
-      return;
-    }
-
     setError('');
-    setStatus('Exporting WEBSTER...');
+    setStatus('Exporting WEBSTER from backend...');
     try {
-      const blob = await createWebsterBinaryFile(parsedFrames);
-      const safeProjectName = (sourceProject?.name ?? 'webster-project').trim().replace(/[^\w-]+/g, '-').replace(/-+/g, '-');
+      const exported = await exportProjectFile(sourceProjectId, 'webster');
       const link = document.createElement('a');
-      link.download = `${safeProjectName || 'webster-project'}.webster`;
-      link.href = URL.createObjectURL(blob);
+      link.download = exported.fileName;
+      link.href = URL.createObjectURL(exported.blob);
       link.click();
       URL.revokeObjectURL(link.href);
-      setStatus('Exported WEBSTER.');
+      setStatus('Exported WEBSTER from backend.');
     } catch (error) {
-      setError(getErrorMessage(error, 'Could not export WEBSTER.'));
+      setError(getErrorMessage(error, 'Could not export WEBSTER from backend.'));
     }
   };
 

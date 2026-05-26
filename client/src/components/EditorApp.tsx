@@ -1631,7 +1631,13 @@ export function EditorApp({ theme, toggleTheme }: Props) {
       ) : null}
 
       <input accept="image/*" hidden onChange={objectActions.handleImageUpload} ref={fileInputRef} type="file" />
-      <input accept=".webster,application/octet-stream" hidden onChange={(event) => projects.importProject(event, () => navigate('/editor'))} ref={importInputRef} type="file" />
+      <input
+        accept=".webster,application/octet-stream"
+        hidden
+        onChange={(event) => projects.importProject(event)}
+        ref={importInputRef}
+        type="file"
+      />
     </main>
   );
 }

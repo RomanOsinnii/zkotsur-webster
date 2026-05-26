@@ -51,7 +51,7 @@ describe('ProjectsService', () => {
     } as unknown as ProjectEntity;
     const savedWithPath = {
       ...created,
-      dataPath: join(process.cwd(), 'storage', 'projects', ownerId, 'project-1.json')
+      dataPath: join(process.cwd(), 'storage', 'projects', 'project-1', 'project.json')
     } as unknown as ProjectEntity;
 
     repository.create.mockReturnValue(created);
@@ -59,7 +59,7 @@ describe('ProjectsService', () => {
       .mockResolvedValueOnce(created)
       .mockResolvedValueOnce(savedWithPath);
 
-    await expect(service.create(payload, ownerId)).resolves.toEqual(expect.objectContaining({
+    await expect(service.create(payload, { kind: 'user', userId: ownerId })).resolves.toEqual(expect.objectContaining({
       id: 'project-1',
       name: payload.name,
       description: payload.description,
@@ -78,6 +78,6 @@ describe('ProjectsService', () => {
   it('throws when a project is missing', async () => {
     repository.findOne.mockResolvedValue(null);
 
-    await expect(service.findOne('missing-id', ownerId)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.findOne('missing-id', { kind: 'user', userId: ownerId })).rejects.toBeInstanceOf(NotFoundException);
   });
 });

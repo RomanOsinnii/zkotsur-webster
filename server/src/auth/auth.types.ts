@@ -3,3 +3,7 @@ export type AuthTokenPayload = {
   email: string;
   name: string;
 };
+
+export type ProjectActor =
+  | { kind: 'user'; userId: string }
+  | { kind: 'guest'; guestId: string };

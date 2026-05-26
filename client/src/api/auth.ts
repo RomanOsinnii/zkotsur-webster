@@ -1,4 +1,4 @@
-import { buildApiPath, clearAccessToken, requestJson, setAccessToken } from './http';
+import { buildApiPath, clearAccessToken, clearGuestId, getOrCreateGuestId, requestJson, setAccessToken } from './http';
 
 const authBasePath = buildApiPath('/api/auth');
 
@@ -90,9 +90,13 @@ export async function register(payload: RegisterPayload) {
 export async function login(payload: LoginPayload) {
   const response = await requestJson<AuthResponse>(`${authBasePath}/login`, {
     method: 'POST',
-    body: JSON.stringify(payload)
+    body: JSON.stringify({
+      ...payload,
+      guestId: getOrCreateGuestId()
+    })
   });
   setAccessToken(response.accessToken);
+  clearGuestId();
   return response;
 }
 

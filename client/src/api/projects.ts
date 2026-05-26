@@ -1,4 +1,4 @@
-import { buildApiPath, getAccessToken, requestJson } from './http';
+import { buildApiPath, getAccessToken, getOrCreateGuestId, requestJson } from './http';
 
 const projectsBasePath = buildApiPath('/api/projects');
 
@@ -40,7 +40,7 @@ export type PublicProjectRecord = {
   updatedAt: string;
 };
 
-export type ProjectExportFormat = 'json' | 'png' | 'pdf';
+export type ProjectExportFormat = 'json' | 'png' | 'pdf' | 'webster';
 
 export type ExportedProjectFile = {
   blob: Blob;
@@ -109,6 +109,8 @@ export async function exportProjectFile(id: string, format: ProjectExportFormat)
   const token = getAccessToken();
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
+  } else {
+    headers.set('X-Guest-Id', getOrCreateGuestId());
   }
 
   const response = await fetch(`${projectsBasePath}/${id}/export/${format}`, {
@@ -139,4 +141,23 @@ export async function exportProjectFile(id: string, format: ProjectExportFormat)
     blob: await response.blob(),
     fileName
   };
+}
+
+export function importWebsterProjectFile(file: File): Promise<ProjectRecord> {
+  const headers = new Headers();
+  const token = getAccessToken();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  } else {
+    headers.set('X-Guest-Id', getOrCreateGuestId());
+  }
+
+  const body = new FormData();
+  body.append('file', file);
+
+  return requestJson<ProjectRecord>(`${projectsBasePath}/import/webster`, {
+    method: 'POST',
+    headers,
+    body
+  });
 }

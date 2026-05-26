@@ -5,11 +5,12 @@ import { ProjectEntity } from './project.entity';
 import { ProjectsController } from './projects.controller';
 import { ProjectsService } from './projects.service';
 import { SharedProjectsController } from './shared-projects.controller';
+import { ProjectAccessGuard } from '../auth/project-access.guard';
 
 @Module({
   imports: [TypeOrmModule.forFeature([ProjectEntity]), AuthModule],
   controllers: [ProjectsController, SharedProjectsController],
-  providers: [ProjectsService],
+  providers: [ProjectsService, ProjectAccessGuard],
   exports: [ProjectsService]
 })
 export class ProjectsModule {}

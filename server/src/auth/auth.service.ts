@@ -3,8 +3,11 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'crypto';
 import { createTransport } from 'nodemailer';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { UsersService } from '../users/users.service';
 import { UserEntity } from '../users/user.entity';
+import { ProjectEntity } from '../projects/project.entity';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -23,7 +26,9 @@ export class AuthService {
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
-    private readonly configService: ConfigService
+    private readonly configService: ConfigService,
+    @InjectRepository(ProjectEntity)
+    private readonly projectsRepository: Repository<ProjectEntity>
   ) {}
 
   async register(dto: RegisterDto) {
@@ -114,7 +119,17 @@ export class AuthService {
       throw new UnauthorizedException('Email is not verified yet');
     }
 
-    return this.buildAuthResponse(user);
+    const response = await this.buildAuthResponse(user);
+    const guestId = dto.guestId?.trim();
+    if (guestId) {
+      await this.projectsRepository
+        .createQueryBuilder()
+        .update(ProjectEntity)
+        .set({ owner: { id: user.id } as UserEntity, guestId: null })
+        .where('guestId = :guestId', { guestId })
+        .execute();
+    }
+    return response;
   }
 
   async verifyEmail(dto: VerifyEmailDto) {

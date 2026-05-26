@@ -1,15 +1,17 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { mkdir, readFile, rm, writeFile } from 'fs/promises';
 import { dirname, join } from 'path';
-import { Repository } from 'typeorm';
+import JSZip = require('jszip');
+import { Repository, SelectQueryBuilder } from 'typeorm';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ProjectEntity } from './project.entity';
 import { UserEntity } from '../users/user.entity';
+import { ProjectActor } from '../auth/auth.types';
 
-export type ProjectExportFormat = 'json' | 'png' | 'pdf';
+export type ProjectExportFormat = 'json' | 'png' | 'pdf' | 'webster';
 
 export type ProjectExportFile = {
   fileName: string;
@@ -44,36 +46,38 @@ export class ProjectsService {
     private readonly projectsRepository: Repository<ProjectEntity>
   ) {}
 
-  async findAll(ownerId: string): Promise<ProjectView[]> {
-    const projects = await this.projectsRepository
+  async findAll(actor: ProjectActor): Promise<ProjectView[]> {
+    const query = this.projectsRepository
       .createQueryBuilder('project')
-      .where('project.ownerId = :ownerId', { ownerId })
       .orderBy('COALESCE(project.lastOpenedAt, project.updatedAt)', 'DESC')
-      .addOrderBy('project.updatedAt', 'DESC')
-      .getMany();
+      .addOrderBy('project.updatedAt', 'DESC');
+    this.applyActorFilter(query, actor);
+    const projects = await query.getMany();
 
     return Promise.all(projects.map((project) => this.toProjectView(project)));
   }
 
-  async findRecent(ownerId: string, limit = 6): Promise<ProjectView[]> {
-    const projects = await this.projectsRepository
+  async findRecent(actor: ProjectActor, limit = 6): Promise<ProjectView[]> {
+    const query = this.projectsRepository
       .createQueryBuilder('project')
-      .where('project.ownerId = :ownerId', { ownerId })
       .orderBy('COALESCE(project.lastOpenedAt, project.updatedAt)', 'DESC')
       .addOrderBy('project.updatedAt', 'DESC')
-      .limit(limit)
-      .getMany();
+      .limit(limit);
+    this.applyActorFilter(query, actor);
+    const projects = await query.getMany();
 
     return Promise.all(projects.map((project) => this.toProjectView(project)));
   }
 
-  async findOne(id: string, ownerId: string): Promise<ProjectView> {
-    const project = await this.findOneEntity(id, ownerId);
+  async findOne(id: string, actor: ProjectActor): Promise<ProjectView> {
+    const project = await this.findOneEntity(id, actor);
     return this.toProjectView(project);
   }
 
-  private async findOneEntity(id: string, ownerId: string): Promise<ProjectEntity> {
-    const project = await this.projectsRepository.findOne({ where: { id, owner: { id: ownerId } } });
+  private async findOneEntity(id: string, actor: ProjectActor): Promise<ProjectEntity> {
+    const query = this.projectsRepository.createQueryBuilder('project').where('project.id = :id', { id });
+    this.applyActorFilter(query, actor);
+    const project = await query.getOne();
     if (!project) {
       throw new NotFoundException(`Project with id '${id}' was not found`);
     }
@@ -81,30 +85,45 @@ export class ProjectsService {
     return project;
   }
 
-  async openProject(id: string, ownerId: string): Promise<ProjectView> {
-    const project = await this.findOneEntity(id, ownerId);
+  async openProject(id: string, actor: ProjectActor): Promise<ProjectView> {
+    const project = await this.findOneEntity(id, actor);
     project.lastOpenedAt = new Date();
     const saved = await this.projectsRepository.save(project);
     return this.toProjectView(saved);
   }
 
-  async create(dto: CreateProjectDto, ownerId: string): Promise<ProjectView> {
+  async create(dto: CreateProjectDto, actor: ProjectActor): Promise<ProjectView> {
     const project = this.projectsRepository.create({
       name: dto.name,
       description: dto.description?.trim() || null,
       lastOpenedAt: new Date(),
-      owner: { id: ownerId } as UserEntity
+      owner: actor.kind === 'user' ? ({ id: actor.userId } as UserEntity) : null,
+      guestId: actor.kind === 'guest' ? actor.guestId : null
     });
 
     const saved = await this.projectsRepository.save(project);
-    saved.dataPath = this.getDataPath(ownerId, saved.id);
-    await this.writeProjectData(saved.dataPath, dto.data);
+    saved.dataPath = this.getDataPath(saved.id);
+    await this.writeProjectData(saved.id, saved.dataPath, dto.data);
     const updated = await this.projectsRepository.save(saved);
     return this.toProjectView(updated);
   }
 
-  async update(id: string, dto: UpdateProjectDto, ownerId: string): Promise<ProjectView> {
-    const project = await this.findOneEntity(id, ownerId);
+  async createFromImportedData(
+    actor: ProjectActor,
+    payload: { name: string; description?: string | null; data: Record<string, unknown> }
+  ): Promise<ProjectView> {
+    return this.create(
+      {
+        name: payload.name,
+        description: payload.description ?? undefined,
+        data: payload.data
+      },
+      actor
+    );
+  }
+
+  async update(id: string, dto: UpdateProjectDto, actor: ProjectActor): Promise<ProjectView> {
+    const project = await this.findOneEntity(id, actor);
 
     if (dto.name !== undefined) {
       project.name = dto.name;
@@ -113,26 +132,25 @@ export class ProjectsService {
       project.description = dto.description?.trim() || null;
     }
     if (!project.dataPath) {
-      project.dataPath = this.getDataPath(ownerId, project.id);
+      project.dataPath = this.getDataPath(project.id);
     }
     if (dto.data !== undefined) {
-      await this.writeProjectData(project.dataPath, dto.data);
+      await this.writeProjectData(project.id, project.dataPath, dto.data);
     }
 
     const saved = await this.projectsRepository.save(project);
     return this.toProjectView(saved);
   }
 
-  async remove(id: string, ownerId: string): Promise<void> {
-    const project = await this.findOneEntity(id, ownerId);
-    if (project.dataPath) {
-      await rm(project.dataPath, { force: true });
-    }
+  async remove(id: string, actor: ProjectActor): Promise<void> {
+    const project = await this.findOneEntity(id, actor);
+    await rm(this.getProjectDir(project.id), { recursive: true, force: true });
+    if (project.dataPath) await rm(project.dataPath, { force: true });
     await this.projectsRepository.remove(project);
   }
 
-  async enableShare(id: string, ownerId: string): Promise<ProjectShareState> {
-    const project = await this.findOneEntity(id, ownerId);
+  async enableShare(id: string, actor: ProjectActor): Promise<ProjectShareState> {
+    const project = await this.findOneEntity(id, actor);
 
     project.isPublic = true;
     project.shareSlug = project.shareSlug ?? await this.generateUniqueShareSlug();
@@ -146,15 +164,15 @@ export class ProjectsService {
     };
   }
 
-  async disableShare(id: string, ownerId: string): Promise<void> {
-    const project = await this.findOneEntity(id, ownerId);
+  async disableShare(id: string, actor: ProjectActor): Promise<void> {
+    const project = await this.findOneEntity(id, actor);
     project.isPublic = false;
     project.shareSlug = null;
     await this.projectsRepository.save(project);
   }
 
-  async getShareDetails(id: string, ownerId: string): Promise<ProjectShareDetails> {
-    const project = await this.findOneEntity(id, ownerId);
+  async getShareDetails(id: string, actor: ProjectActor): Promise<ProjectShareDetails> {
+    const project = await this.findOneEntity(id, actor);
     return {
       isPublic: project.isPublic,
       shareSlug: project.shareSlug,
@@ -191,7 +209,7 @@ export class ProjectsService {
     };
   }
 
-  async cloneSharedProject(slug: string, ownerId: string): Promise<ProjectView> {
+  async cloneSharedProject(slug: string, actor: ProjectActor): Promise<ProjectView> {
     const source = await this.projectsRepository.findOne({
       where: { shareSlug: slug, isPublic: true }
     });
@@ -204,18 +222,19 @@ export class ProjectsService {
       name: `${source.name} (Draft)`,
       description: source.description,
       lastOpenedAt: new Date(),
-      owner: { id: ownerId } as UserEntity
+      owner: actor.kind === 'user' ? ({ id: actor.userId } as UserEntity) : null,
+      guestId: actor.kind === 'guest' ? actor.guestId : null
     });
 
     const saved = await this.projectsRepository.save(clone);
-    saved.dataPath = this.getDataPath(ownerId, saved.id);
-    await this.writeProjectData(saved.dataPath, sourceData);
+    saved.dataPath = this.getDataPath(saved.id);
+    await this.writeProjectData(saved.id, saved.dataPath, sourceData);
     const updated = await this.projectsRepository.save(saved);
     return this.toProjectView(updated);
   }
 
-  async exportProject(id: string, ownerId: string, format: ProjectExportFormat): Promise<ProjectExportFile> {
-    const project = await this.findOneEntity(id, ownerId);
+  async exportProject(id: string, actor: ProjectActor, format: ProjectExportFormat): Promise<ProjectExportFile> {
+    const project = await this.findOneEntity(id, actor);
     const projectData = await this.readProjectData(project);
     const frames = extractFrames(projectData);
     const fileBaseName = toSafeFileName(project.name || 'webster-project');
@@ -236,11 +255,52 @@ export class ProjectsService {
       };
     }
 
+    if (format === 'png') {
+      return {
+        fileName: `${fileBaseName}.png`,
+        mimeType: 'image/png',
+        buffer: createProjectPreviewPng(frames)
+      };
+    }
+
+    const now = new Date();
+    const stamp = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}_${String(now.getUTCHours()).padStart(2, '0')}-${String(now.getUTCMinutes()).padStart(2, '0')}-${String(now.getUTCSeconds()).padStart(2, '0')}`;
     return {
-      fileName: `${fileBaseName}.png`,
-      mimeType: 'image/png',
-      buffer: createProjectPreviewPng(frames)
+      fileName: `${fileBaseName}-${stamp}.webster`,
+      mimeType: 'application/octet-stream',
+      buffer: await createWebsterBinaryFile(projectData)
     };
+  }
+
+  async importWebsterProject(buffer: Buffer, actor: ProjectActor, fallbackName = 'Imported project'): Promise<ProjectView> {
+    const parsed = await parseWebsterBinaryFile(buffer);
+    const projectData = isRecord(parsed) ? parsed : { frames: [] };
+    const name = deriveProjectNameForImport(projectData, fallbackName);
+    return this.createFromImportedData(actor, {
+      name,
+      description: null,
+      data: projectData
+    });
+  }
+
+  async attachGuestProjectsToUser(guestId: string, userId: string): Promise<void> {
+    await this.projectsRepository
+      .createQueryBuilder()
+      .update(ProjectEntity)
+      .set({ owner: { id: userId } as UserEntity, guestId: null })
+      .where('guestId = :guestId', { guestId })
+      .execute();
+  }
+
+  private applyActorFilter(
+    query: SelectQueryBuilder<ProjectEntity>,
+    actor: ProjectActor
+  ): void {
+    if (actor.kind === 'user') {
+      query.andWhere('project.ownerId = :ownerId', { ownerId: actor.userId });
+      return;
+    }
+    query.andWhere('project.guestId = :guestId', { guestId: actor.guestId });
   }
 
   private async generateUniqueShareSlug(): Promise<string> {
@@ -255,23 +315,36 @@ export class ProjectsService {
     throw new Error('Could not generate a unique share link slug.');
   }
 
-  private getDataPath(ownerId: string, projectId: string): string {
-    return join(process.cwd(), 'storage', 'projects', ownerId, `${projectId}.json`);
+  private getProjectDir(projectId: string): string {
+    return join(process.cwd(), 'storage', 'projects', projectId);
   }
 
-  private async writeProjectData(path: string, data: Record<string, unknown>): Promise<void> {
+  private getDataPath(projectId: string): string {
+    return join(this.getProjectDir(projectId), 'project.json');
+  }
+
+  private async writeProjectData(projectId: string, path: string, data: Record<string, unknown>): Promise<void> {
     await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, JSON.stringify(data), 'utf8');
+    const normalized = await externalizeDataUrls(data, this.getProjectDir(projectId));
+    await writeFile(path, JSON.stringify(normalized), 'utf8');
   }
 
   private async readProjectData(project: ProjectEntity): Promise<Record<string, unknown>> {
-    if (!project.dataPath) {
-      return { frames: [] };
+    const path = project.dataPath || this.getDataPath(project.id);
+    try {
+      const content = await readFile(path, 'utf8');
+      const parsed = JSON.parse(content) as unknown;
+      if (!isRecord(parsed)) {
+        return { frames: [] };
+      }
+      const hydrated = await hydrateStoredAssets(parsed, dirname(path));
+      return isRecord(hydrated) ? hydrated : { frames: [] };
+    } catch (error) {
+      if (isNotFoundError(error)) {
+        return { frames: [] };
+      }
+      throw error;
     }
-
-    const content = await readFile(project.dataPath, 'utf8');
-    const parsed = JSON.parse(content) as unknown;
-    return isRecord(parsed) ? parsed : { frames: [] };
   }
 
   private async toProjectView(project: ProjectEntity): Promise<ProjectView> {
@@ -478,6 +551,256 @@ function toPositiveNumber(value: unknown, fallback: number): number {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+const ASSET_URI_PREFIX = 'asset://';
+const DATA_URL_PATTERN = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+);base64,([a-z0-9+/=\r\n]+)$/i;
+
+async function externalizeDataUrls(value: unknown, projectDir: string): Promise<unknown> {
+  if (typeof value === 'string') {
+    const parsed = parseDataUrl(value);
+    if (!parsed) return value;
+
+    const fileName = `${createHash('sha256').update(parsed.buffer).digest('hex')}.${mimeToExtension(parsed.mimeType)}`;
+    const assetDir = join(projectDir, 'assets');
+    const assetPath = join(assetDir, fileName);
+    await mkdir(assetDir, { recursive: true });
+    await writeFile(assetPath, parsed.buffer);
+    return `${ASSET_URI_PREFIX}assets/${fileName}`;
+  }
+
+  if (Array.isArray(value)) {
+    const items = await Promise.all(value.map((entry) => externalizeDataUrls(entry, projectDir)));
+    return items;
+  }
+
+  if (isRecord(value)) {
+    const entries = await Promise.all(
+      Object.entries(value).map(async ([key, entry]) => [key, await externalizeDataUrls(entry, projectDir)] as const)
+    );
+    return Object.fromEntries(entries);
+  }
+
+  return value;
+}
+
+async function hydrateStoredAssets(value: unknown, projectDir: string): Promise<unknown> {
+  if (typeof value === 'string' && value.startsWith(ASSET_URI_PREFIX)) {
+    const relativePath = value.slice(ASSET_URI_PREFIX.length).replace(/\\/g, '/');
+    const diskPath = join(projectDir, relativePath);
+    try {
+      const buffer = await readFile(diskPath);
+      const mimeType = extensionToMime(diskPath);
+      return `data:${mimeType};base64,${buffer.toString('base64')}`;
+    } catch (error) {
+      if (isNotFoundError(error)) return '';
+      throw error;
+    }
+  }
+
+  if (Array.isArray(value)) {
+    const items = await Promise.all(value.map((entry) => hydrateStoredAssets(entry, projectDir)));
+    return items;
+  }
+
+  if (isRecord(value)) {
+    const entries = await Promise.all(
+      Object.entries(value).map(async ([key, entry]) => [key, await hydrateStoredAssets(entry, projectDir)] as const)
+    );
+    return Object.fromEntries(entries);
+  }
+
+  return value;
+}
+
+function parseDataUrl(value: string): { mimeType: string; buffer: Buffer } | null {
+  const match = DATA_URL_PATTERN.exec(value.trim());
+  if (!match) return null;
+  const mimeType = match[1].toLowerCase();
+  const payload = match[2].replace(/\s+/g, '');
+  return {
+    mimeType,
+    buffer: Buffer.from(payload, 'base64')
+  };
+}
+
+function mimeToExtension(mimeType: string): string {
+  switch (mimeType.toLowerCase()) {
+    case 'image/png':
+      return 'png';
+    case 'image/jpeg':
+      return 'jpg';
+    case 'image/webp':
+      return 'webp';
+    case 'image/gif':
+      return 'gif';
+    case 'image/svg+xml':
+      return 'svg';
+    default:
+      return 'bin';
+  }
+}
+
+function extensionToMime(path: string): string {
+  const lowerPath = path.toLowerCase();
+  if (lowerPath.endsWith('.png')) return 'image/png';
+  if (lowerPath.endsWith('.jpg') || lowerPath.endsWith('.jpeg')) return 'image/jpeg';
+  if (lowerPath.endsWith('.webp')) return 'image/webp';
+  if (lowerPath.endsWith('.gif')) return 'image/gif';
+  if (lowerPath.endsWith('.svg')) return 'image/svg+xml';
+  return 'application/octet-stream';
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return isRecord(error) && error.code === 'ENOENT';
+}
+
+const WEBSTER_PROJECT_FILENAME = 'project.json';
+const WEBSTER_MANIFEST_FILENAME = 'manifest.json';
+const WEBSTER_CONTAINER_VERSION = 1;
+const WEBSTER_BINARY_MAGIC = 'WEBSTERBIN1';
+
+type WebsterManifest = {
+  format: 'webster';
+  version: number;
+  createdAt: string;
+  projectFile: string;
+  projectBytes: number;
+  projectSha256: string;
+};
+
+async function createWebsterBinaryFile(data: Record<string, unknown>): Promise<Buffer> {
+  const zip = new JSZip();
+  const projectJson = JSON.stringify(data, null, 2);
+  const projectBytes = Buffer.from(projectJson, 'utf8');
+  const manifest: WebsterManifest = {
+    format: 'webster',
+    version: WEBSTER_CONTAINER_VERSION,
+    createdAt: new Date().toISOString(),
+    projectFile: WEBSTER_PROJECT_FILENAME,
+    projectBytes: projectBytes.byteLength,
+    projectSha256: sha256Hex(projectBytes)
+  };
+
+  zip.file(WEBSTER_PROJECT_FILENAME, projectJson);
+  zip.file(WEBSTER_MANIFEST_FILENAME, JSON.stringify(manifest, null, 2));
+  const zipBytes = Buffer.from(await zip.generateAsync({ type: 'uint8array' }));
+  const checksumBytes = Buffer.from(sha256Hex(zipBytes), 'utf8');
+  const magicBytes = Buffer.from(WEBSTER_BINARY_MAGIC, 'utf8');
+  const headerSize = magicBytes.length + 1 + 4 + checksumBytes.length;
+  const out = Buffer.alloc(headerSize + zipBytes.byteLength);
+
+  magicBytes.copy(out, 0);
+  out[magicBytes.length] = WEBSTER_CONTAINER_VERSION;
+  out.writeUInt32LE(zipBytes.byteLength, magicBytes.length + 1);
+  checksumBytes.copy(out, magicBytes.length + 1 + 4);
+  zipBytes.copy(out, headerSize);
+  return out;
+}
+
+async function parseWebsterBinaryFile(rawData: Buffer): Promise<unknown> {
+  const magicBytes = Buffer.from(WEBSTER_BINARY_MAGIC, 'utf8');
+  const headerSize = magicBytes.length + 1 + 4 + 64;
+  if (rawData.byteLength < headerSize + 1) {
+    throw new Error('Broken file: Webster container is too short.');
+  }
+  if (!rawData.subarray(0, magicBytes.length).equals(magicBytes)) {
+    throw new Error('Unsupported file: Webster binary signature is missing.');
+  }
+  const version = rawData[magicBytes.length];
+  if (version !== WEBSTER_CONTAINER_VERSION) {
+    throw new Error(`Unsupported Webster binary version: ${String(version)}.`);
+  }
+  const payloadLength = rawData.readUInt32LE(magicBytes.length + 1);
+  const expectedChecksum = rawData.subarray(magicBytes.length + 1 + 4, headerSize).toString('utf8').toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(expectedChecksum)) {
+    throw new Error('Broken file: checksum header is invalid.');
+  }
+  const payload = rawData.subarray(headerSize);
+  if (payload.byteLength !== payloadLength) {
+    throw new Error('Broken file: payload size mismatch.');
+  }
+  const actualChecksum = sha256Hex(payload);
+  if (actualChecksum !== expectedChecksum) {
+    throw new Error('Broken file: payload checksum mismatch.');
+  }
+
+  const zip = await JSZip.loadAsync(payload);
+  const manifestFile = zip.file(WEBSTER_MANIFEST_FILENAME);
+  if (!manifestFile) throw new Error('Broken file: manifest.json is missing.');
+  const manifest = JSON.parse(await manifestFile.async('string')) as Partial<WebsterManifest>;
+  if (manifest.format !== 'webster') throw new Error('Unsupported format: expected webster.');
+  if (manifest.projectFile !== WEBSTER_PROJECT_FILENAME) throw new Error('Broken file: manifest project file is invalid.');
+
+  const projectFile = zip.file(WEBSTER_PROJECT_FILENAME);
+  if (!projectFile) throw new Error('Broken file: project.json is missing.');
+  const projectBytes = Buffer.from(await projectFile.async('uint8array'));
+  if (typeof manifest.projectBytes !== 'number' || projectBytes.byteLength !== manifest.projectBytes) {
+    throw new Error('Broken file: project size mismatch.');
+  }
+  const projectChecksum = sha256Hex(projectBytes);
+  if (typeof manifest.projectSha256 !== 'string' || projectChecksum !== manifest.projectSha256.toLowerCase()) {
+    throw new Error('Broken file: project checksum mismatch.');
+  }
+
+  const parsedProject = JSON.parse(projectBytes.toString('utf8')) as unknown;
+  return hydratePortableProjectFromZip(parsedProject, zip);
+}
+
+function sha256Hex(buffer: Buffer): string {
+  return createHash('sha256').update(buffer).digest('hex');
+}
+
+function deriveProjectNameForImport(data: Record<string, unknown>, fallback: string): string {
+  const frames = data.frames;
+  if (!Array.isArray(frames) || frames.length === 0) {
+    return fallback;
+  }
+  const first = frames[0];
+  if (!isRecord(first) || typeof first.name !== 'string' || !first.name.trim()) {
+    return fallback;
+  }
+  const name = first.name.trim().slice(0, 120);
+  return name || fallback;
+}
+
+async function hydratePortableProjectFromZip(project: unknown, zip: JSZip): Promise<unknown> {
+  if (typeof project === 'string') {
+    if (!project.startsWith('assets/')) {
+      return project;
+    }
+    const file = zip.file(project);
+    if (!file) {
+      return project;
+    }
+    const base64 = await file.async('base64');
+    return `data:${mimeFromFilename(project)};base64,${base64}`;
+  }
+
+  if (Array.isArray(project)) {
+    const items = await Promise.all(project.map((item) => hydratePortableProjectFromZip(item, zip)));
+    return items;
+  }
+
+  if (isRecord(project)) {
+    const entries = await Promise.all(
+      Object.entries(project).map(async ([key, value]) => [key, await hydratePortableProjectFromZip(value, zip)] as const)
+    );
+    return Object.fromEntries(entries);
+  }
+
+  return project;
+}
+
+function mimeFromFilename(filename: string): string {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith('.svg') || lower.endsWith('.svg+xml')) return 'image/svg+xml';
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.gif')) return 'image/gif';
+  if (lower.endsWith('.bmp')) return 'image/bmp';
+  if (lower.endsWith('.tif') || lower.endsWith('.tiff')) return 'image/tiff';
+  return 'image/png';
 }
 
 function encodePng(width: number, height: number, pixelData: Buffer): Buffer {
